@@ -14,6 +14,9 @@ A robust Python script for logging button presses from Bluetooth selfie stick de
 ## Files
 
 - `bt_trigger_logger.py` - Main working logger script
+- `boat_tracker.py` - Web application for boat entry/exit tracking
+- `start_boat_tracker.py` - Startup script to run both services
+- `templates/index.html` - Web interface template
 - `bt_triggers.csv` - Log file for button presses
 - `README.md` - This documentation
 
@@ -80,7 +83,7 @@ RESCAN_INTERVAL = 0.5                # Device rescan interval in seconds
 
 ## Usage
 
-### Basic Usage
+### Option 1: Button Logger Only
 
 ```bash
 sudo python3 bt_trigger_logger.py
@@ -91,6 +94,30 @@ The script will:
 - Start monitoring for button presses
 - Log all presses to `bt_triggers.csv`
 - Handle device sleep/wake cycles automatically
+
+### Option 2: Complete Boat Tracking System (Recommended)
+
+```bash
+sudo python3 start_boat_tracker.py
+```
+
+This will start both:
+1. **Button Logger** - Monitors your selfie stick button
+2. **Web Server** - Provides a beautiful web interface at http://localhost:5000
+
+### Option 3: Manual Startup
+
+Start the button logger in one terminal:
+```bash
+sudo python3 bt_trigger_logger.py
+```
+
+Start the web server in another terminal:
+```bash
+python3 boat_tracker.py
+```
+
+Then open http://localhost:5000 in your browser.
 
 ### Monitor Different Buttons
 
@@ -106,6 +133,24 @@ WATCH_CODE = ecodes.KEY_NEXTSONG
 # Monitor power button
 WATCH_CODE = ecodes.KEY_POWER
 ```
+
+## Web Interface Features
+
+The boat tracking web interface provides:
+
+- **Real-time Updates** - Auto-refreshes every 2 seconds
+- **Boat Management** - Automatically generates random boat names and IDs
+- **Entry/Exit Tracking** - Button press = ENTRY, Button release = EXIT
+- **Statistics Dashboard** - Live counts of entries, exits, and boats
+- **Responsive Design** - Works on desktop and mobile devices
+- **Beautiful UI** - Modern gradient design with smooth animations
+
+### How It Works
+
+1. **Button Press (value=1)** → Boat **ENTRY** into harbor
+2. **Button Release (value=0)** → Boat **EXIT** from harbor
+3. **Random Boat Generation** - Creates new boats or reuses existing ones
+4. **Real-time Display** - Shows all activity as it happens
 
 ## Log Format
 

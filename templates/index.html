@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚢 Boat Tracker - Harbor Management System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+        }
+
+        .entries-section {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+
+        .boats-section {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .entry-item {
+            display: grid;
+            grid-template-columns: auto 1fr auto auto;
+            gap: 15px;
+            align-items: center;
+            padding: 15px;
+            margin-bottom: 10px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            transition: all 0.3s ease;
+        }
+
+        .entry-item:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
+        }
+
+        .entry-item.entry {
+            border-left-color: #28a745;
+        }
+
+        .entry-item.exit {
+            border-left-color: #dc3545;
+        }
+
+        .entry-time {
+            font-size: 0.9rem;
+            color: #666;
+            white-space: nowrap;
+        }
+
+        .boat-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .boat-id {
+            font-weight: bold;
+            color: #667eea;
+            font-size: 1.1rem;
+        }
+
+        .boat-name {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .status-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-entry {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-exit {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .boat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .boat-card.in-harbor {
+            border-left-color: #28a745;
+        }
+
+        .boat-card.left-harbor {
+            border-left-color: #dc3545;
+        }
+
+        .boat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .boat-id-small {
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .boat-status {
+            font-size: 0.8rem;
+            padding: 3px 8px;
+            border-radius: 12px;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        .boat-status.in-harbor {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .boat-status.left-harbor {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .new-entry {
+            animation: slideIn 0.5s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .refresh-info {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .last-update {
+            text-align: center;
+            margin-top: 10px;
+            color: #999;
+            font-size: 0.8rem;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .entry-item {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚢 Boat Tracker</h1>
+            <p>Harbor Management System - Real-time Boat Entry/Exit Monitoring</p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number" id="total-entries">0</div>
+                <div class="stat-label">Total Events</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="entry-count">0</div>
+                <div class="stat-label">Entries</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="exit-count">0</div>
+                <div class="stat-label">Exits</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="total-boats">0</div>
+                <div class="stat-label">Total Boats</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="boats-in-harbor">0</div>
+                <div class="stat-label">In Harbor</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="boats-left">0</div>
+                <div class="stat-label">Left Harbor</div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="entries-section">
+                <h2 class="section-title">📋 Recent Entries & Exits</h2>
+                <div id="entries-list">
+                    <p style="text-align: center; color: #666; padding: 20px;">
+                        Waiting for boat activity... Press the button on your selfie stick to log entries!
+                    </p>
+                </div>
+            </div>
+
+            <div class="boats-section">
+                <h2 class="section-title">🚤 Boat Status</h2>
+                <div id="boats-list">
+                    <p style="text-align: center; color: #666; padding: 20px;">
+                        No boats registered yet...
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="refresh-info">
+            <p>🔄 Auto-refreshing every 2 seconds</p>
+        </div>
+        
+        <div class="last-update" id="last-update">
+            Last update: Never
+        </div>
+    </div>
+
+    <script>
+        let lastUpdateTime = 0;
+
+        function updateStats(stats) {
+            document.getElementById('total-entries').textContent = stats.total_entries;
+            document.getElementById('entry-count').textContent = stats.entry_count;
+            document.getElementById('exit-count').textContent = stats.exit_count;
+            document.getElementById('total-boats').textContent = stats.total_boats;
+            document.getElementById('boats-in-harbor').textContent = stats.boats_in_harbor;
+            document.getElementById('boats-left').textContent = stats.boats_left;
+        }
+
+        function updateEntries(entries) {
+            const entriesList = document.getElementById('entries-list');
+            
+            if (entries.length === 0) {
+                entriesList.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">No entries yet...</p>';
+                return;
+            }
+
+            entriesList.innerHTML = entries.map(entry => `
+                <div class="entry-item ${entry.status.toLowerCase()} new-entry">
+                    <div class="entry-time">${entry.local_time}</div>
+                    <div class="boat-info">
+                        <div class="boat-id">${entry.boat_id}</div>
+                        <div class="boat-name">${entry.boat_name}</div>
+                    </div>
+                    <div class="status-badge status-${entry.status.toLowerCase()}">${entry.status}</div>
+                    <div style="font-size: 0.8rem; color: #999;">${entry.device}</div>
+                </div>
+            `).join('');
+
+            // Remove new-entry class after animation
+            setTimeout(() => {
+                document.querySelectorAll('.new-entry').forEach(el => {
+                    el.classList.remove('new-entry');
+                });
+            }, 500);
+        }
+
+        function updateBoats(boats) {
+            const boatsList = document.getElementById('boats-list');
+            
+            if (boats.length === 0) {
+                boatsList.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">No boats registered yet...</p>';
+                return;
+            }
+
+            boatsList.innerHTML = boats.map(boat => `
+                <div class="boat-card ${boat.status}">
+                    <div class="boat-header">
+                        <div class="boat-id-small">${boat.id}</div>
+                        <div class="boat-status ${boat.status}">${boat.status.replace('_', ' ')}</div>
+                    </div>
+                    <div class="boat-name">${boat.name}</div>
+                    ${boat.last_seen ? `<div style="font-size: 0.8rem; color: #666; margin-top: 5px;">Last seen: ${new Date(boat.last_seen).toLocaleString()}</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function updateLastUpdate(timestamp) {
+            if (timestamp > lastUpdateTime) {
+                lastUpdateTime = timestamp;
+                const date = new Date(timestamp * 1000);
+                document.getElementById('last-update').textContent = `Last update: ${date.toLocaleString()}`;
+            }
+        }
+
+        function fetchData() {
+            fetch('/api/stats')
+                .then(response => response.json())
+                .then(data => {
+                    updateStats(data);
+                    updateLastUpdate(data.last_update);
+                })
+                .catch(error => console.error('Error fetching stats:', error));
+
+            fetch('/api/entries')
+                .then(response => response.json())
+                .then(data => {
+                    updateEntries(data.recent_entries);
+                })
+                .catch(error => console.error('Error fetching entries:', error));
+
+            fetch('/api/boats')
+                .then(response => response.json())
+                .then(data => {
+                    updateBoats(data);
+                })
+                .catch(error => console.error('Error fetching boats:', error));
+        }
+
+        // Initial load
+        fetchData();
+
+        // Auto-refresh every 2 seconds
+        setInterval(fetchData, 2000);
+
+        // Add some visual feedback when new data arrives
+        document.addEventListener('DOMContentLoaded', function() {
+            // Pulse effect on stats cards when they update
+            const statNumbers = document.querySelectorAll('.stat-number');
+            statNumbers.forEach(stat => {
+                stat.addEventListener('DOMSubtreeModified', function() {
+                    this.classList.add('pulse');
+                    setTimeout(() => this.classList.remove('pulse'), 2000);
+                });
+            });
+        });
+    </script>
+</body>
+</html>
