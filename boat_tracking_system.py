@@ -338,63 +338,72 @@ class BoatTrackingSystem:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Boat Tracking System</title>
+    <title>Red Shed | Boat Tracking</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh; color: #333; padding: 20px;
+        :root {
+            --red: #e54b4b;         /* Red Shed primary */
+            --deep: #113036;        /* Deep teal/green */
+            --sand: #6a8f95;        /* Muted accent */
+            --ink: #0b1b1e;         /* Dark background */
+            --paper: #ffffff;       /* Cards */
+            --success: #27ae60;
+            --danger: #dc3545;
+            --warning: #ffc107;
+        }
+        body {
+            font-family: 'Montserrat', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--ink);
+            color: #e9ecef;
+            min-height: 100vh;
+            padding: 24px;
         }
         .container { max-width: 1400px; margin: 0 auto; }
-        .header { text-align: center; margin-bottom: 30px; color: white; }
-        .header h1 { font-size: 2.5rem; margin-bottom: 10px; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
-        .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; }
-        .card { 
-            background: white; border-radius: 15px; padding: 25px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1); 
+        .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+        .brand { display: flex; align-items: baseline; gap: 12px; }
+        .brand h1 { color: var(--paper); font-size: 2rem; letter-spacing: 1px; }
+        .brand span { color: var(--sand); font-weight: 600; font-size: 0.95rem; }
+        .primary-btn {
+            background: var(--red); color: var(--paper); border: none; padding: 12px 20px;
+            border-radius: 8px; font-weight: 700; cursor: pointer; letter-spacing: .3px;
+            box-shadow: 0 6px 16px rgba(229,75,75,0.25);
         }
-        .card h2 { color: #2c3e50; margin-bottom: 20px; }
-        .boat-item, .beacon-item { 
-            padding: 15px; margin: 10px 0; border-radius: 8px; 
-            background: #f8f9fa; border-left: 4px solid #667eea;
+        .primary-btn:hover { filter: brightness(1.05); }
+        .dashboard { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 20px; }
+        @media (max-width: 1100px) { .dashboard { grid-template-columns: 1fr; } }
+        .card {
+            background: var(--paper); color: #2c3e50; border-radius: 14px; padding: 22px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
         }
-        .boat-item.in-harbor { border-left-color: #28a745; }
-        .boat-item.out { border-left-color: #dc3545; }
-        .beacon-item.assigned { border-left-color: #28a745; }
-        .beacon-item.unclaimed { border-left-color: #ffc107; }
-        .status-badge { 
-            display: inline-block; padding: 4px 8px; border-radius: 12px; 
-            font-weight: bold; font-size: 0.8rem; margin-left: 10px;
+        .card h2 { color: var(--deep); margin-bottom: 14px; letter-spacing: 0.5px; }
+        .boat-item, .beacon-item {
+            padding: 14px; margin: 10px 0; border-radius: 10px; background: #f6f7f8; border-left: 4px solid var(--sand);
         }
+        .boat-item.in-harbor { border-left-color: var(--success); }
+        .boat-item.out { border-left-color: var(--danger); }
+        .beacon-item.assigned { border-left-color: var(--success); }
+        .beacon-item.unclaimed { border-left-color: var(--warning); }
+        .status-badge { display: inline-block; padding: 4px 8px; border-radius: 12px; font-weight: 700; font-size: 0.75rem; margin-left: 10px; }
         .status-in-harbor { background: #d4edda; color: #155724; }
         .status-out { background: #f8d7da; color: #721c24; }
         .status-assigned { background: #d4edda; color: #155724; }
         .status-unclaimed { background: #fff3cd; color: #856404; }
-        .update-indicator { 
-            position: fixed; top: 20px; right: 20px; padding: 10px 15px; 
-            background: #28a745; color: white; border-radius: 20px; 
-            font-size: 0.9rem; font-weight: bold; z-index: 1000;
-            opacity: 0; transition: opacity 0.3s ease;
-        }
+        .update-indicator { position: fixed; top: 20px; right: 20px; padding: 10px 15px; background: var(--success); color: white; border-radius: 20px; font-size: 0.9rem; font-weight: bold; z-index: 1000; opacity: 0; transition: opacity 0.3s ease; }
         .update-indicator.show { opacity: 1; }
         .rssi-info { font-size: 0.9rem; color: #6c757d; margin-top: 5px; }
+        .whiteboard { background: var(--red); color: var(--paper); border-radius: 14px; padding: 22px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+        .whiteboard h2 { color: var(--paper); margin-bottom: 12px; }
+        .whiteboard img { width: 100%; border-radius: 10px; display: block; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>Boat Tracking System</h1>
-            <p>Multi-beacon BLE tracking with database backend</p>
-            <button onclick="openBeaconDiscovery()" style="
-                background: #28a745; color: white; border: none; padding: 12px 24px; 
-                border-radius: 25px; font-size: 1.1rem; font-weight: bold; 
-                cursor: pointer; margin-top: 15px; box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
-                transition: all 0.3s ease;
-            " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(40, 167, 69, 0.4)'" 
-               onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(40, 167, 69, 0.3)'">
-                + Register New Beacon
-            </button>
+            <div class="brand">
+                <h1>RED SHED</h1>
+                <span>Black Mountain Peninsula, Canberra</span>
+            </div>
+            <button class="primary-btn" onclick="openBeaconDiscovery()">+ Register New Beacon</button>
         </div>
         
         <div class="update-indicator" id="updateIndicator">Updating...</div>
@@ -422,6 +431,13 @@ class BoatTrackingSystem:
                 <div id="presenceInfo">
                     <p>Loading presence data...</p>
                 </div>
+            </div>
+            
+            <!-- Whiteboard Snapshot / CTA -->
+            <div class="whiteboard" style="grid-column: 1 / -1;">
+                <h2>Whiteboard (Current Practice)</h2>
+                <p style="margin-bottom: 12px; opacity: .9;">Manual logging leads to confusion and missed updates. Replace with real-time presence.</p>
+                <img src="https://raw.githubusercontent.com/placeholder/redshed-whiteboard.png" alt="Whiteboard placeholder" onerror="this.style.display='none'">
             </div>
         </div>
     </div>
