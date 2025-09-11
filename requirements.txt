@@ -1,2 +1,4 @@
-evdev>=1.6.1
-flask>=2.0.0
+# Rowing Boat Health System Dependencies
+# This file points to the main requirements in the rowing_system directory
+
+-r rowing_system/requirements.txt

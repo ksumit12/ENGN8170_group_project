@@ -1,246 +1,110 @@
-# Bluetooth Selfie Stick Button Logger
+# 🚣‍♂️ Rowing Boat Health System
 
-A robust Python script for logging button presses from Bluetooth selfie stick devices (like Q07/PICO) that automatically handles device sleep/wake cycles and disconnections.
+A comprehensive BLE-powered system for tracking rowing boat usage, health monitoring, and maintenance management.
 
-## Features
+## 🚀 Quick Start
 
-- **Automatic Device Detection**: Finds and monitors Bluetooth HID devices with volume control buttons
-- **Sleep/Wake Handling**: Automatically detects when devices go to sleep and wakes them up
-- **Resilient Operation**: Survives device disconnections and reconnections
-- **Real-time Logging**: Logs button presses with timestamps to CSV
-- **Non-blocking I/O**: Uses efficient select() polling for multiple devices
-- **No Device Grabbing**: Works alongside system volume controls
+### Option 1: Simple Version (Python 3.10+ Compatible)
+```bash
+python3 quick_start.py
+```
+Then open: **http://localhost:5000**
 
-## Files
+### Option 2: Full System (Python 3.11+ Required)
+```bash
+# Install dependencies
+python3 run.py --install
 
-- `bt_trigger_logger.py` - Main working logger script
-- `boat_tracker.py` - Web application for boat entry/exit tracking
-- `start_boat_tracker.py` - Startup script to run both services
-- `templates/index.html` - Web interface template
-- `bt_triggers.csv` - Log file for button presses
-- `README.md` - This documentation
+# Run system (bench mode)
+python3 run.py
 
-## Prerequisites
+# Access dashboard
+# Open: http://localhost:8000
+```
 
-1. **Python 3.6+** with the following packages:
-   ```bash
-   pip3 install evdev
-   ```
-
-2. **Root access** (required for reading input devices):
-   ```bash
-   sudo python3 bt_trigger_logger.py
-   ```
-
-3. **Bluetooth tools**:
-   ```bash
-   sudo apt-get install bluetooth bluez bluetoothctl
-   ```
-
-## Setup
-
-### 1. Pair Your Device
-
-First, make sure your Bluetooth selfie stick is paired:
+## 📋 Available Commands
 
 ```bash
-bluetoothctl
-> scan on
-> pair FF:05:11:50:24:E0  # Replace with your device's MAC
-> trust FF:05:11:50:24:E0
-> connect FF:05:11:50:24:E0
+# Run in bench mode (default)
+python3 run.py
+
+# Run in production mode (dual scanners)
+python3 run.py --mode production
+
+# Run only BLE scanner
+python3 run.py --scanner-only
+
+# Run only backend API
+python3 run.py --backend-only
+
+# Run visualization tools
+python3 run.py --visualize
+
+# Install dependencies
+python3 run.py --install
+
+# Show system status
+python3 run.py --status
 ```
 
-### 2. Run the Logger
+## 🎯 Modes
 
-Start the main logger:
+### **Bench Mode** (Default)
+- Single scanner with beacon ON/OFF simulation
+- Perfect for testing and development
+- Toggle your beacon to simulate boat entry/exit
+- No physical gate required
 
-```bash
-sudo python3 bt_trigger_logger.py
+### **Production Mode**
+- Dual scanners for real gate detection
+- Direction detection (ENTER vs EXIT)
+- MQTT support for distributed scanners
+- Full production deployment
+
+## 📊 Features
+
+- **🔍 BLE Detection**: Real-time beacon scanning with RSSI analysis
+- **📈 Health Scoring**: 0-100 intelligent health scores
+- **📱 Live Dashboard**: Real-time web interface with WebSocket updates
+- **🔧 Maintenance Alerts**: Automated service scheduling
+- **📊 Visualization**: RSSI plotting and data analysis tools
+- **🐳 Docker Support**: Complete containerization
+
+## 📁 Project Structure
+
+```
+grp_project/
+├── run.py                    # 🚀 Single entry point script
+├── README.md                 # This file
+└── rowing_system/            # Main system directory
+    ├── main.py              # System manager
+    ├── scanner.py           # BLE scanner service
+    ├── backend.py           # FastAPI web server
+    ├── health_scoring.py    # Health scoring algorithm
+    ├── visualization.py     # Data analysis tools
+    ├── config.yaml          # Configuration
+    ├── static/dashboard.html # Web dashboard
+    └── ...                  # Other system files
 ```
 
-## How It Works
+## 🔧 Configuration
 
-The script automatically:
+Edit `rowing_system/config.yaml` to customize:
+- RSSI thresholds
+- Health scoring parameters
+- Maintenance intervals
+- Scanner settings
 
-1. **Scans for devices** that support `KEY_VOLUMEDOWN` (or other configurable keys)
-2. **Monitors multiple devices** simultaneously using efficient I/O polling
-3. **Handles sleep/wake cycles** - when a device goes to sleep, it's automatically removed from monitoring
-4. **Reconnects automatically** - rescans for devices every 0.5 seconds
-5. **Logs button presses** to CSV with timestamps and device information
+## 📚 Documentation
 
-## Configuration
+For detailed documentation, see `rowing_system/README.md`
 
-You can modify these settings at the top of `bt_trigger_logger.py`:
+## 🤝 Support
 
-```python
-PREFERRED_NAMES = {"Q07", "PICO"}   # Device names to prefer
-WATCH_CODE = ecodes.KEY_VOLUMEDOWN   # Button code to monitor
-CSV_PATH = "bt_triggers.csv"         # Log file path
-GRAB_DEVICE = False                  # Don't grab devices (let system work)
-RESCAN_INTERVAL = 0.5                # Device rescan interval in seconds
-```
+- Check the troubleshooting section in the detailed README
+- Review configuration options
+- Use `python3 run.py --status` to check system health
 
-## Usage
+---
 
-### Option 1: Button Logger Only
-
-```bash
-sudo python3 bt_trigger_logger.py
-```
-
-The script will:
-- Automatically detect your Bluetooth device
-- Start monitoring for button presses
-- Log all presses to `bt_triggers.csv`
-- Handle device sleep/wake cycles automatically
-
-### Option 2: Complete Boat Tracking System (Recommended)
-
-```bash
-sudo python3 start_boat_tracker.py
-```
-
-This will start both:
-1. **Button Logger** - Monitors your selfie stick button
-2. **Web Server** - Provides a beautiful web interface at http://localhost:5000
-
-### Option 3: Manual Startup
-
-Start the button logger in one terminal:
-```bash
-sudo python3 bt_trigger_logger.py
-```
-
-Start the web server in another terminal:
-```bash
-python3 boat_tracker.py
-```
-
-Then open http://localhost:5000 in your browser.
-
-### Monitor Different Buttons
-
-To monitor different buttons, change `WATCH_CODE`:
-
-```python
-# Monitor play/pause button
-WATCH_CODE = ecodes.KEY_PLAYPAUSE
-
-# Monitor next song button  
-WATCH_CODE = ecodes.KEY_NEXTSONG
-
-# Monitor power button
-WATCH_CODE = ecodes.KEY_POWER
-```
-
-## Web Interface Features
-
-The boat tracking web interface provides:
-
-- **Real-time Updates** - Auto-refreshes every 2 seconds
-- **Boat Management** - Automatically generates random boat names and IDs
-- **Entry/Exit Tracking** - Button press = ENTRY, Button release = EXIT
-- **Statistics Dashboard** - Live counts of entries, exits, and boats
-- **Responsive Design** - Works on desktop and mobile devices
-- **Beautiful UI** - Modern gradient design with smooth animations
-
-### How It Works
-
-1. **Button Press (value=1)** → Boat **ENTRY** into harbor
-2. **Button Release (value=0)** → Boat **EXIT** from harbor
-3. **Random Boat Generation** - Creates new boats or reuses existing ones
-4. **Real-time Display** - Shows all activity as it happens
-
-## Log Format
-
-Button presses are logged to `bt_triggers.csv` with these columns:
-
-- `iso_time_utc` - ISO 8601 timestamp in UTC
-- `epoch_s` - Unix timestamp with microseconds
-- `device_path` - Device path (e.g., /dev/input/event18)
-- `device_name` - Device name (e.g., Q07)
-- `value` - Event value (1 = press, 0 = release, 2 = repeat)
-- `meaning` - Human-readable event description
-
-## Troubleshooting
-
-### Device Not Found
-
-1. **Check Bluetooth connection**:
-   ```bash
-   bluetoothctl info FF:05:11:50:24:E0
-   ```
-
-2. **Verify device is paired**:
-   ```bash
-   bluetoothctl paired-devices
-   ```
-
-3. **Check input devices**:
-   ```bash
-   sudo cat /proc/bus/input/devices | grep -i q07
-   ```
-
-### Permission Denied
-
-1. **Run with sudo**:
-   ```bash
-   sudo python3 bt_trigger_logger.py
-   ```
-
-2. **Add udev rule** (alternative to sudo):
-   ```bash
-   # Create file: /etc/udev/rules.d/99-input-permissions.rules
-   KERNEL=="event*", SUBSYSTEM=="input", MODE="0666"
-   ```
-
-### Device Goes to Sleep
-
-This is **normal behavior**! The script automatically handles:
-- Device sleep detection
-- Automatic removal from monitoring
-- Re-scanning for when devices wake up
-- Re-connection when devices become available again
-
-## Systemd Service (Optional)
-
-Create a systemd service to run the logger automatically:
-
-```bash
-# Create service file: /etc/systemd/system/bt-logger.service
-[Unit]
-Description=Bluetooth Selfie Stick Logger
-After=bluetooth.service
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/bin/python3 /path/to/bt_trigger_logger.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start the service:
-```bash
-sudo systemctl enable bt-logger.service
-sudo systemctl start bt-logger.service
-```
-
-## Technical Details
-
-- **I/O Model**: Uses `select()` for efficient multi-device monitoring
-- **Error Handling**: Gracefully handles `ENODEV` (device sleep) and `EIO` (disconnect) errors
-- **Device Management**: Automatically opens/closes devices as they appear/disappear
-- **Memory Efficient**: Only keeps active devices in memory
-
-## Contributing
-
-Feel free to submit issues and enhancement requests!
-
-## License
-
-This project is open source and available under the MIT License.
+**Happy Rowing! 🚣‍♂️**
