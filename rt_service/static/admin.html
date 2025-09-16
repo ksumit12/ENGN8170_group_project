@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Red Shed • Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100">
+  <div class="max-w-6xl mx-auto p-4">
+    <a class="text-slate-300 hover:underline" href="/ui/dashboard.html">← Back</a>
+    <h1 class="text-2xl font-bold mt-2 mb-3">Admin</h1>
+    <div class="bg-slate-800 p-3 rounded mb-4">
+      <div class="font-semibold mb-2">Create Boat</div>
+      <div class="grid md:grid-cols-4 gap-2">
+        <input id="boat_id" placeholder="boat_id" class="px-2 py-1 rounded bg-slate-700" />
+        <input id="display_name" placeholder="display_name" class="px-2 py-1 rounded bg-slate-700" />
+        <input id="beacons" placeholder="beacons (comma-separated)" class="px-2 py-1 rounded bg-slate-700" />
+        <button id="create" class="px-3 py-1 bg-emerald-600 rounded">Create</button>
+      </div>
+    </div>
+    <div class="bg-slate-800 p-3 rounded mb-4">
+      <div class="font-semibold mb-2">Closing Time</div>
+      <div class="flex gap-2 items-center">
+        <input id="closing" placeholder="HH:MM" class="px-2 py-1 rounded bg-slate-700 w-32" />
+        <button id="saveClosing" class="px-3 py-1 bg-emerald-600 rounded">Save</button>
+      </div>
+    </div>
+    <div>
+      <div class="text-xl font-semibold mb-2">Boats</div>
+      <ul id="boats" class="space-y-2"></ul>
+    </div>
+  </div>
+  <script>
+    async function load(){
+      const b = await fetch('/api/boats?includeDeactivated=true').then(r=>r.json());
+      document.getElementById('boats').innerHTML = b.map(x=>`<li class="bg-slate-800 p-2 rounded"><div class="flex justify-between"><div>${x.display_name} <span class="text-xs text-slate-400">(${x.boat_id})</span></div><div>${x.status}</div></div></li>`).join('');
+      const ct = await fetch('/api/settings/closing-time').then(r=>r.json());
+      document.getElementById('closing').value = ct.closing_time || '20:00';
+    }
+    document.getElementById('create').onclick=async()=>{
+      const payload={boat_id:boat_id.value,display_name:display_name.value,assigned_beacon_ids:beacons.value.split(',').map(s=>s.trim()).filter(Boolean)}; await fetch('/api/boats',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); load(); };
+    document.getElementById('saveClosing').onclick=async()=>{ await fetch('/api/settings/closing-time',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({closing_time:closing.value})}); alert('Saved'); };
+    load();
+  </script>
+</body>
+</html>
+
+
+
+

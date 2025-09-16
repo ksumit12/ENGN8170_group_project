@@ -7,17 +7,23 @@ Manages scanners, API server, and web dashboard
 import time
 import threading
 import logging
+import requests
 import argparse
 import subprocess
 import sys
 from typing import List, Optional
 from flask import Flask, render_template_string, jsonify, request
 from datetime import datetime, timezone, timedelta
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None  # py<3.9 fallback
 from flask_cors import CORS
 
-from database_models import DatabaseManager
+from database_models import DatabaseManager, BoatStatus
 from ble_scanner import BLEScanner, ScannerConfig
 from api_server import APIServer
+import admin_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +41,8 @@ class BoatTrackingSystem:
         self.web_app = Flask(__name__)
         CORS(self.web_app)
         self.setup_web_routes()
+        # simple settings persistence (file-based to avoid DB migration)
+        self.settings_file = 'settings.json'
     
     def setup_web_routes(self):
         """Setup web dashboard routes."""
@@ -43,10 +51,44 @@ class BoatTrackingSystem:
         def dashboard():
             """Main dashboard page."""
             return render_template_string(self.get_dashboard_html())
+
+        @self.web_app.route('/admin')
+        def admin_page_root():
+            return render_template_string(self.get_admin_login_html())
+
+        @self.web_app.route('/admin/reset', methods=['POST'])
+        def admin_reset_endpoint():
+            data = request.get_json() or {}
+            try:
+                if not (data.get('user') and data.get('pass')):
+                    return jsonify({'error': 'Unauthorized'}), 401
+                if data.get('dry'):
+                    return jsonify({'message': 'Auth OK'})
+                code, payload = admin_service.admin_reset(self.db)
+                return jsonify(payload), code
+            except Exception as e:
+                logger.exception('admin reset failed')
+                return jsonify({'error': str(e)}), 500
         
-        @self.web_app.route('/api/boats')
+        @self.web_app.route('/api/boats', methods=['GET','POST'])
         def api_boats():
-            """Get all boats for dashboard."""
+            """Get or create boats.
+            GET: list boats for dashboard
+            POST: create boat {id,name,class_type}
+            """
+            if request.method == 'POST':
+                try:
+                    data = request.get_json() or {}
+                    boat_id = data.get('id') or data.get('boat_id')
+                    name = data.get('name') or data.get('display_name')
+                    class_type = data.get('class_type') or data.get('class') or 'unknown'
+                    if not boat_id or not name:
+                        return jsonify({'error':'id and name required'}), 400
+                    boat = self.db.create_boat(boat_id, name, class_type)
+                    return jsonify({'id': boat.id, 'name': boat.name, 'class_type': boat.class_type}), 201
+                except Exception as e:
+                    logger.exception('create boat failed')
+                    return jsonify({'error': str(e)}), 500
             boats = self.db.get_all_boats()
             result = []
             
@@ -54,10 +96,6 @@ class BoatTrackingSystem:
                 beacon = self.db.get_beacon_by_boat(boat.id)
                 if not beacon:
                     # Skip boats with no assigned beacon to avoid clutter
-                    continue
-                # Skip legacy/demo boats that were not created via the register flow
-                # Registered boats carry a notes field that includes a "Serial:" marker
-                if not boat.notes or ('Serial:' not in str(boat.notes)):
                     continue
                 beacon_state = None
                 last_seen_ts = 0
@@ -179,9 +217,22 @@ class BoatTrackingSystem:
         
         @self.web_app.route('/api/presence')
         def api_presence():
-            """Get current presence status."""
-            boats_in_harbor = self.db.get_boats_in_harbor()
-            
+            """Get current presence status.
+            Use boat status IN_HARBOR (set by background updater) rather than FSM states,
+            so single-scanner setups report presence correctly.
+            """
+            boats = self.db.get_all_boats()
+            boats_in_harbor = []
+            for b in boats:
+                try:
+                    status_val = getattr(b.status, 'value', str(b.status))
+                except Exception:
+                    status_val = str(b.status)
+                if status_val == 'in_harbor':
+                    beacon = self.db.get_beacon_by_boat(b.id)
+                    if beacon:
+                        boats_in_harbor.append((b, beacon))
+
             def normalize_last_seen(ls):
                 if not ls:
                     return None
@@ -204,51 +255,141 @@ class BoatTrackingSystem:
                 'total_in_harbor': len(boats_in_harbor),
                 'timestamp': time.time()
             })
+
+        @self.web_app.route('/api/overdue')
+        def api_overdue():
+            """Return boats that are OUT after closing time (default 20:00 Australia/Sydney)."""
+            # load closing time from settings.json
+            import json, os
+            closing_str = '20:00'
+            if os.path.exists(self.settings_file):
+                try:
+                    with open(self.settings_file,'r') as f:
+                        closing_str = json.load(f).get('closing_time', '20:00')
+                except Exception:
+                    closing_str = '20:00'
+            try:
+                hh, mm = map(int, closing_str.split(':'))
+                # Validate hour and minute ranges
+                if not (0 <= hh < 24 and 0 <= mm < 60):
+                    hh, mm = 20, 0  # fallback to 20:00
+            except Exception:
+                hh, mm = 20, 0
+
+            now_utc = datetime.now(timezone.utc)
+            if ZoneInfo:
+                local = now_utc.astimezone(ZoneInfo('Australia/Sydney'))
+            else:
+                local = now_utc  # fallback
+            try:
+                cutoff = local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            except ValueError as e:
+                logger.error(f"Invalid closing time {closing_str}: {e}, using 20:00")
+                cutoff = local.replace(hour=20, minute=0, second=0, microsecond=0)
+
+            overdue_ids = []
+            if local >= cutoff:
+                # Any active boat with status OUT is considered on water/overdue
+                for boat in self.db.get_all_boats():
+                    if boat.status.value == 'out':
+                        overdue_ids.append(boat.id)
+
+            return jsonify({
+                'closing_time': closing_str,
+                'overdue_boat_ids': overdue_ids
+            })
+
+        @self.web_app.route('/api/settings/closing-time', methods=['GET','PATCH'])
+        def closing_time_setting():
+            if request.method == 'GET':
+                code, payload = admin_service.get_closing(self.settings_file)
+                return jsonify(payload), code
+            data = request.get_json() or {}
+            code, payload = admin_service.set_closing(self.settings_file, data.get('closing_time',''))
+            return jsonify(payload), code
+
+        # remove duplicate admin route if present (no-op placeholder to avoid rebind)
+
+        @self.web_app.route('/reports')
+        def reports_page():
+            return render_template_string(self.get_reports_html())
+
+        @self.web_app.route('/api/reports/usage')
+        def reports_usage():
+            """Aggregate outings from detections by pairing EXITED->ENTERED events per boat.
+            Returns per-boat totals within optional ISO range.
+            """
+            from_iso = request.args.get('from')
+            to_iso = request.args.get('to')
+            boat_id = request.args.get('boatId')
+            def parse_iso(s):
+                if not s: return None
+                try: return datetime.fromisoformat(s.replace('Z','+00:00'))
+                except Exception: return None
+            start = parse_iso(from_iso)
+            end = parse_iso(to_iso)
+            # Helper: for each boat -> beacon id
+            boats = self.db.get_all_boats()
+            summaries = []
+            for b in boats:
+                if boat_id and b.id != boat_id: continue
+                beacon = self.db.get_beacon_by_boat(b.id)
+                if not beacon: continue
+                with self.db.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        SELECT timestamp, state FROM detections
+                        WHERE beacon_id = ?
+                        ORDER BY timestamp ASC
+                    """, (beacon.id,))
+                    rows = cur.fetchall()
+                # filter by range
+                events = []
+                for ts, st in rows:
+                    t = datetime.fromisoformat(ts) if isinstance(ts,str) else ts
+                    if start and t < start: continue
+                    if end and t > end: continue
+                    events.append((t, st))
+                # pair ON_WATER (exited) -> IN_SHED (entered)
+                total_minutes = 0
+                count = 0
+                opened = None
+                for t, st in events:
+                    if st in ('exited', 'ON_WATER') and opened is None:
+                        opened = t
+                    elif st in ('entered', 'IN_SHED') and opened is not None:
+                        dur = (t - opened).total_seconds()/60.0
+                        if dur > 0:
+                            total_minutes += int(dur)
+                            count += 1
+                        opened = None
+                summaries.append({'boat_id': b.id, 'total_outings': count, 'total_minutes': total_minutes})
+            return jsonify(summaries)
+
+        @self.web_app.route('/api/reports/usage/export.csv')
+        def reports_usage_csv():
+            import io, csv
+            data = request.args.to_dict(flat=True)
+            # Reuse JSON endpoint
+            with self.web_app.test_request_context('/api/reports/usage', query_string=data):
+                resp = reports_usage()
+                rows = resp.get_json()
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow(['boat_id','total_outings','total_minutes'])
+            for r in rows:
+                w.writerow([r['boat_id'], r['total_outings'], r['total_minutes']])
+            from flask import Response
+            return Response(buf.getvalue(), mimetype='text/csv')
         
         @self.web_app.route('/api/register-beacon', methods=['POST'])
         def register_beacon():
-            """Register a new beacon and create associated boat."""
             try:
-                data = request.get_json()
-                
-                # Create the boat first
-                boat_serial = data.get('boat_serial')
-                if not boat_serial:
-                    return jsonify({'success': False, 'error': 'boat_serial is required'}), 400
-                self.db.create_boat(
-                    boat_id=boat_serial,
-                    name=data['boat_name'],
-                    class_type=data['boat_class'],
-                    notes=f"Serial: {data.get('boat_serial', 'N/A')}, Brand: {data.get('boat_brand', 'N/A')}, {data.get('boat_notes', '')}"
-                )
-                boat_id = boat_serial
-                
-                # Update the beacon with the new name and assign to boat
-                beacon = self.db.get_beacon_by_mac(data['mac_address'])
-                if beacon:
-                    # Update beacon name
-                    self.db.update_beacon(beacon.id, name=data['name'])
-                    # Assign beacon to boat
-                    self.db.assign_beacon_to_boat(beacon.id, boat_id)
-                    
-                    return jsonify({
-                        'success': True,
-                        'message': 'Beacon registered successfully',
-                        'boat_id': boat_id,
-                        'beacon_id': beacon.id
-                    })
-                else:
-                    return jsonify({
-                        'success': False,
-                        'error': 'Beacon not found. Make sure the beacon is nearby and detected by the system.'
-                    }), 404
-                    
+                code, payload = admin_service.register_beacon(self.db, request.get_json() or {})
+                return jsonify(payload), code
             except Exception as e:
-                logger.error(f"Error registering beacon: {e}")
-                return jsonify({
-                    'success': False,
-                    'error': str(e)
-                }), 500
+                logger.exception('register_beacon failed')
+                return jsonify({'success': False, 'error': str(e)}), 500
     
     def start_api_server(self):
         """Start the API server."""
@@ -272,10 +413,15 @@ class BoatTrackingSystem:
     
     def start_scanners(self):
         """Start BLE scanners."""
+        # Resolve a client-usable API host. 0.0.0.0 is a bind address, not a client address.
+        api_host = self.config['api_host']
+        client_api_host = 'localhost' if api_host in ('0.0.0.0', '::', '0:0:0:0:0:0:0:0') else api_host
+        server_base_url = f"http://{client_api_host}:{self.config['api_port']}"
+
         for scanner_config in self.config['scanners']:
             config = ScannerConfig(
                 scanner_id=scanner_config['id'],
-                server_url=f"http://{self.config['api_host']}:{self.config['api_port']}",
+                server_url=server_base_url,
                 api_key=scanner_config.get('api_key', 'default-key'),
                 rssi_threshold=scanner_config.get('rssi_threshold', -80),
                 scan_interval=scanner_config.get('scan_interval', 1.0)
@@ -391,19 +537,58 @@ class BoatTrackingSystem:
         .update-indicator { position: fixed; top: 20px; right: 20px; padding: 10px 15px; background: var(--success); color: white; border-radius: 20px; font-size: 0.9rem; font-weight: bold; z-index: 1000; opacity: 0; transition: opacity 0.3s ease; }
         .update-indicator.show { opacity: 1; }
         .rssi-info { font-size: 0.9rem; color: #6c757d; margin-top: 5px; }
-        .whiteboard { background: var(--red); color: var(--paper); border-radius: 14px; padding: 22px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
-        .whiteboard h2 { color: var(--paper); margin-bottom: 12px; }
-        .whiteboard img { width: 100%; border-radius: 10px; display: block; }
+        /* Overdue banner blink */
+        @keyframes blink { 0%,100% { opacity: .8 } 50% { opacity: .4 } }
+        #overdueBanner { opacity: .8; animation: blink 1s linear infinite; }
+        /* Whiteboard-first layout */
+        .whiteboard-board { background: #fff; color: #222; border-radius: 14px; padding: 18px 18px 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); margin-bottom: 18px; }
+        .wb-title { text-align: center; color: var(--red); font-weight: 800; font-size: 1.6rem; letter-spacing: .5px; margin-bottom: 12px; }
+        .wb-table { width: 100%; border-collapse: collapse; }
+        .wb-table th, .wb-table td { border: 2px solid #ddd; padding: 10px 12px; font-weight: 700; }
+        .wb-table th { background: #f7f7f7; color: #333; text-transform: uppercase; letter-spacing: .6px; }
+        .wb-status-in { color: #1e7e34; }
+        .wb-status-out { color: #b02a37; }
+        .subnote { font-weight: 500; color: #666; font-size: .85rem; margin-top: 8px; text-align: center; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <div class="brand">
-                <h1>RED SHED</h1>
+                <h1>Black Mountain Rowing Club</h1>
                 <span>Black Mountain Peninsula, Canberra</span>
             </div>
-            <button class="primary-btn" onclick="openBeaconDiscovery()">+ Register New Beacon</button>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <a href="/admin" class="primary-btn" style="text-decoration:none; display:inline-block;">Admin</a>
+                <button class="primary-btn" onclick="openBeaconDiscovery()">+ Register New Beacon</button>
+            </div>
+        </div>
+        <div id="overdueBanner" style="display:none; margin:10px 0; padding:12px; background:#b02a37; color:white; border-radius:8px; animation: blink 1s infinite;">
+            Overdue boats after closing time
+        </div>
+        
+        <!-- Closing Time Display -->
+        <div style="margin:10px 0; padding:8px 12px; background:#f8f9fa; border-left:4px solid #007bff; border-radius:4px; color:#495057;">
+            <strong>Closing Time:</strong> <span id="closingTimeDisplay">Loading...</span>
+        </div>
+        
+        <!-- Whiteboard-style priority view -->
+        <div class="whiteboard-board">
+            <div class="wb-title">Boat Out Board</div>
+            <table class="wb-table" id="wbTable">
+                <thead>
+                    <tr>
+                        <th>Boat</th>
+                        <th>Status</th>
+                        <th>Last Seen</th>
+                        <th>Signal</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="4" style="text-align:center; padding:14px; font-weight:600; color:#666;">Loading...</td></tr>
+                </tbody>
+            </table>
+            <div class="subnote">This board updates automatically from live scanner readings.</div>
         </div>
         
         <div class="update-indicator" id="updateIndicator">Updating...</div>
@@ -433,12 +618,6 @@ class BoatTrackingSystem:
                 </div>
             </div>
             
-            <!-- Whiteboard Snapshot / CTA -->
-            <div class="whiteboard" style="grid-column: 1 / -1;">
-                <h2>Whiteboard (Current Practice)</h2>
-                <p style="margin-bottom: 12px; opacity: .9;">Manual logging leads to confusion and missed updates. Replace with real-time presence.</p>
-                <img src="https://raw.githubusercontent.com/placeholder/redshed-whiteboard.png" alt="Whiteboard placeholder" onerror="this.style.display='none'">
-            </div>
         </div>
     </div>
     
@@ -682,13 +861,41 @@ class BoatTrackingSystem:
             const indicator = document.getElementById('updateIndicator');
             indicator.classList.add('show');
             
+            updateWhiteboard();
             updateBoats();
             updateBeacons();
             updatePresence();
+            updateOverdue();
+            updateClosingTime();
             
             setTimeout(() => {
                 indicator.classList.remove('show');
             }, 500);
+        }
+
+        function updateWhiteboard() {
+            Promise.all([
+                fetch('/api/boats').then(r => r.json()),
+                fetch('/api/presence').then(r => r.json())
+            ]).then(([boats, presence]) => {
+                const tbody = document.querySelector('#wbTable tbody');
+                if (!Array.isArray(boats) || boats.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:14px; font-weight:600; color:#666;">No boats registered</td></tr>';
+                    return;
+                }
+
+                const rows = boats.map(b => {
+                    const boatName = b.name;
+                    const status = b.status === 'in_harbor' ? '<span class="wb-status-in">IN SHED</span>' : '<span class="wb-status-out">OUT</span>';
+                    const lastSeen = b.beacon && b.beacon.last_seen ? new Date(b.beacon.last_seen).toLocaleTimeString() : '—';
+                    const signal = b.beacon && b.beacon.last_rssi != null ? `${rssiToPercent(b.beacon.last_rssi)}% (${b.beacon.last_rssi} dBm)` : '—';
+                    return `<tr><td>${boatName}</td><td>${status}</td><td>${lastSeen}</td><td>${signal}</td></tr>`;
+                }).join('');
+                tbody.innerHTML = rows;
+            }).catch(() => {
+                const tbody = document.querySelector('#wbTable tbody');
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:14px; font-weight:600; color:#666;">Error loading whiteboard</td></tr>';
+            });
         }
 
         // Convert RSSI (approx -30..-100 dBm) to 0..100% scale
@@ -706,6 +913,34 @@ class BoatTrackingSystem:
         
         // Initial load
         updateAllData();
+
+        function updateOverdue() {
+            fetch('/api/overdue')
+                .then(r => r.json())
+                .then(d => {
+                    const banner = document.getElementById('overdueBanner');
+                    if (d.overdue_boat_ids && d.overdue_boat_ids.length > 0) {
+                        banner.style.display = 'block';
+                        banner.textContent = `Overdue after ${d.closing_time}: ` + d.overdue_boat_ids.join(', ');
+                        banner.style.opacity = 0.8;
+                    } else {
+                        banner.style.display = 'none';
+                    }
+                })
+                .catch(() => {})
+        }
+        
+        function updateClosingTime() {
+            fetch('/api/settings/closing-time')
+                .then(r => r.json())
+                .then(d => {
+                    const display = document.getElementById('closingTimeDisplay');
+                    if (display) {
+                        display.textContent = d.closing_time || '20:00';
+                    }
+                })
+                .catch(() => {})
+        }
         
         // Beacon Discovery Functions
         let scanInterval = null;
@@ -861,6 +1096,195 @@ class BoatTrackingSystem:
     </script>
 </body>
 </html>
+        """
+
+    def get_admin_login_html(self):
+        """Admin login page with reset action. Uses server-side auth via /admin/reset (dry run)."""
+        return """
+<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+  <title>Admin</title>
+  <style>
+    body{font-family:Segoe UI,Tahoma,Verdana,sans-serif;background:#0b1b1e;color:#e9ecef;padding:24px}
+    .card{background:#fff;color:#2c3e50;border-radius:12px;padding:18px;max-width:520px;margin:24px auto;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    input{padding:10px;border:1px solid #ccc;border-radius:6px;width:100%}
+    button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}
+    .primary{background:#007bff;color:#fff}
+    .danger{background:#dc3545;color:#fff}
+    .muted{color:#666;font-size:.9em}
+  </style>
+  <script>
+    let CRED=null;
+    async function login(){
+      const user=document.getElementById('user').value.trim();
+      const pass=document.getElementById('pass').value.trim();
+      try{
+        const r=await fetch('/admin/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user,pass,dry:true})});
+        if(r.status===401){ alert('Unauthorized'); return; }
+        if(!r.ok){ alert('Server error'); return; }
+        CRED={user,pass};
+        document.getElementById('actions').style.display='block';
+        loadClosing();
+      }catch(e){ alert('Network error: '+e); }
+    }
+    async function loadClosing(){
+      try{
+        const d = await fetch('/api/settings/closing-time').then(r=>r.json());
+        document.getElementById('closing').value = d.closing_time || '20:00';
+      }catch(e){ console.log('closing load failed', e); }
+    }
+    async function saveClosing(){
+      const v = (document.getElementById('closing').value||'').trim();
+      if(!/^\d{2}:\d{2}$/.test(v)){ alert('Use HH:MM 24h format'); return; }
+      try{
+        const r = await fetch('/api/settings/closing-time', {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({closing_time:v})});
+        if(r.ok){ alert('Closing time saved'); } else { alert('Save failed'); }
+      }catch(e){ alert('Save failed: '+e); }
+    }
+    async function resetSystem(){
+      if(!CRED){ alert('Login first'); return; }
+      const r=await fetch('/admin/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(CRED)});
+      const t=await r.text();
+      if(r.ok){ alert('System reset complete'); } else { alert('Error: '+t); }
+    }
+  </script>
+</head>
+<body>
+  <div class=\"card\">
+    <h2>Admin Login</h2>
+    <div style=\"margin:8px 0\"><input id=\"user\" placeholder=\"User ID\" value=\"admin\"></div>
+    <div style=\"margin:8px 0\"><input id=\"pass\" type=\"password\" placeholder=\"Password\" value=\"change_this_password\"></div>
+    <div style=\"margin:8px 0\"><button class=\"primary\" onclick=\"login()\">Login</button></div>
+    <p class=\"muted\">Credentials are configured server-side. Change before production.</p>
+  </div>
+  <div id=\"actions\" class=\"card\" style=\"display:none\">
+    <h2>Admin Actions</h2>
+    <div style=\"margin:8px 0; display:flex; gap:8px; align-items:center;\">
+      <label for=\"closing\" style=\"min-width:120px;\">Overdue after:</label>
+      <input id=\"closing\" placeholder=\"HH:MM\" style=\"flex:0 0 120px\"> <button class=\"primary\" onclick=\"saveClosing()\">Save</button>
+    </div>
+    <div style=\"display:flex; gap:10px; align-items:center; margin:8px 0\">
+      <a href=\"/reports\" style=\"background:#007bff;color:#fff;text-decoration:none;padding:10px 16px;border-radius:6px\">Reports</a>
+      <button class=\"danger\" onclick=\"resetSystem()\">Reset: Clear all assignments & states</button>
+    </div>
+    <p class=\"muted\">This will unassign all beacons, clear FSM states and detections.</p>
+  </div>
+</body>
+</html>
+        """
+
+    def get_admin_html(self):
+        return """
+<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\">
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+  <title>Admin</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .card { max-width: 480px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+    .row { margin-bottom: 12px; }
+    input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; }
+    button { padding: 10px 16px; border: 0; border-radius: 6px; cursor: pointer; }
+    .primary { background: #007bff; color: white; }
+    .danger { background: #dc3545; color: white; }
+    .muted { color: #666; font-size: 0.9em; }
+  </style>
+  <script>
+    async function resetSystem() {
+      const user = document.getElementById('user').value.trim();
+      const pass = document.getElementById('pass').value.trim();
+      if (!user || !pass) { alert('Enter admin user and password'); return; }
+      try {
+        const resp = await fetch('/admin/reset', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({user, pass}) });
+        const text = await resp.text();
+        if (resp.ok) { alert('System reset complete'); } else { alert('Error: ' + text); }
+      } catch (e) { alert('Request failed: ' + e); }
+    }
+  </script>
+</head>
+<body>
+  <div class=\"card\">
+    <h2>Admin Login</h2>
+    <div class=\"row\"><input id=\"user\" placeholder=\"User ID\" value=\"admin\"></div>
+    <div class=\"row\"><input id=\"pass\" type=\"password\" placeholder=\"Password\" value=\"change_this_password\"></div>
+    <div class=\"row\"><button class=\"danger\" onclick=\"resetSystem()\">Reset: Clear all assignments and states</button></div>
+    <p class=\"muted\">This will unassign all beacons, clear states and detections. Use with care.</p>
+  </div>
+</body>
+</html>
+        """
+
+    def get_admin_html(self):
+        return """
+<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+  <title>Admin</title>
+  <style>body{font-family:Segoe UI,Tahoma,Verdana,sans-serif;background:#0b1b1e;color:#e9ecef;padding:24px} .card{background:#fff;color:#2c3e50;border-radius:12px;padding:18px;max-width:900px;margin:0 auto 18px auto;box-shadow:0 10px 30px rgba(0,0,0,.25)} input{padding:8px;border:1px solid #ccc;border-radius:6px}</style>
+</head>
+<body>
+  <div class=\"card\">
+    <h2>Closing Time</h2>
+    <div><input id=\"closing\" placeholder=\"HH:MM\"> <button onclick=\"saveClosing()\">Save</button></div>
+  </div>
+  <div class=\"card\">
+    <h2>Create Boat</h2>
+    <div style=\"display:flex; gap:8px;\">
+      <input id=\"bid\" placeholder=\"boat id\">
+      <input id=\"bname\" placeholder=\"display name\">
+      <input id=\"bclass\" placeholder=\"class (e.g., 4x)\">
+      <button onclick=\"createBoat()\">Create</button>
+    </div>
+  </div>
+  <div class=\"card\">
+    <h2>Boats</h2>
+    <div id=\"boats\">Loading...</div>
+  </div>
+  <script>
+    async function load(){
+      const ct=await fetch('/api/settings/closing-time').then(r=>r.json()).catch(()=>({closing_time:'20:00'}));
+      document.getElementById('closing').value=ct.closing_time||'20:00';
+      const boats=await fetch('/api/boats?includeDeactivated=true').then(r=>r.json());
+      document.getElementById('boats').innerHTML = boats.map(b=>`<div style="margin:6px 0;">${b.name} (${b.class_type}) — ${b.status}</div>`).join('')||'None';
+    }
+    async function saveClosing(){ const v=document.getElementById('closing').value||'20:00'; await fetch('/api/settings/closing-time',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({closing_time:v})}); alert('Saved'); }
+    async function createBoat(){ const id=bid.value,name=bname.value,cls=bclass.value||'unknown'; if(!id||!name){alert('id and name required');return;} await fetch('/api/boats',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,name:name,class_type:cls})}); load(); }
+    load();
+  </script>
+</body></html>
+        """
+
+    def get_reports_html(self):
+        return """
+<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+  <title>Reports</title>
+  <style>body{font-family:Segoe UI,Tahoma,Verdana,sans-serif;background:#0b1b1e;color:#e9ecef;padding:24px} .card{background:#fff;color:#2c3e50;border-radius:12px;padding:18px;max-width:900px;margin:0 auto 18px auto;box-shadow:0 10px 30px rgba(0,0,0,.25)} input{padding:8px;border:1px solid #ccc;border-radius:6px} table{width:100%;border-collapse:collapse} th,td{border-bottom:1px solid #eee;padding:8px}</style>
+</head>
+<body>
+  <div class=\"card\">
+    <h2>Usage Summary</h2>
+    <div style=\"display:flex;gap:8px;margin:8px 0;\">
+      <input id=\"from\" placeholder=\"From (ISO)\">
+      <input id=\"to\" placeholder=\"To (ISO)\">
+      <input id=\"boat\" placeholder=\"Boat ID (optional)\">
+      <button onclick=\"run()\">Run</button>
+      <a id=\"csv\" href=\"#\" style=\"margin-left:auto\">Export CSV</a>
+    </div>
+    <table><thead><tr><th>Boat ID</th><th>Total Outings</th><th>Total Minutes</th></tr></thead><tbody id=\"rows\"></tbody></table>
+  </div>
+  <script>
+    async function run(){ const qs=new URLSearchParams(); if(from.value)qs.set('from',from.value); if(to.value)qs.set('to',to.value); if(boat.value)qs.set('boatId',boat.value); const res=await fetch('/api/reports/usage?'+qs.toString()); const data=await res.json(); rows.innerHTML=data.map(r=>`<tr><td>${r.boat_id}</td><td>${r.total_outings}</td><td>${r.total_minutes}</td></tr>`).join(''); csv.href='/api/reports/usage/export.csv?'+qs.toString(); }
+    run();
+  </script>
+</body></html>
         """
 
 def get_default_config():

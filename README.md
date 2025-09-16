@@ -1,110 +1,127 @@
-# 🚣‍♂️ Rowing Boat Health System
+# Rowing Boat Tracking System
 
-A comprehensive BLE-powered system for tracking rowing boat usage, health monitoring, and maintenance management.
+Multi-beacon BLE system for tracking boat presence and managing beacon-to-boat assignments. The system supports 30–40 boats with unique BLE beacons and provides a web dashboard and REST API.
 
-## 🚀 Quick Start
+## Overview
 
-### Option 1: Simple Version (Python 3.10+ Compatible)
-```bash
-python3 quick_start.py
-```
-Then open: **http://localhost:5000**
+- Multi-scanner BLE ingestion (filtering to iBeacon frames)
+- Database-backed boats, beacons, assignments, and detection history (SQLite by default)
+- Web dashboard for presence and management
+- REST API for integrations
 
-### Option 2: Full System (Python 3.11+ Required)
-```bash
-# Install dependencies
-python3 run.py --install
+## Prerequisites
 
-# Run system (bench mode)
-python3 run.py
+- Python 3.10+
+- Linux with BLE support (BlueZ). Ensure your user can access the BLE adapter.
 
-# Access dashboard
-# Open: http://localhost:8000
-```
-
-## 📋 Available Commands
+## Installation
 
 ```bash
-# Run in bench mode (default)
-python3 run.py
-
-# Run in production mode (dual scanners)
-python3 run.py --mode production
-
-# Run only BLE scanner
-python3 run.py --scanner-only
-
-# Run only backend API
-python3 run.py --backend-only
-
-# Run visualization tools
-python3 run.py --visualize
-
-# Install dependencies
-python3 run.py --install
-
-# Show system status
-python3 run.py --status
+pip install -r requirements_new.txt
 ```
 
-## 🎯 Modes
+## Initial Setup
 
-### **Bench Mode** (Default)
-- Single scanner with beacon ON/OFF simulation
-- Perfect for testing and development
-- Toggle your beacon to simulate boat entry/exit
-- No physical gate required
+Initialize the database and sample data:
 
-### **Production Mode**
-- Dual scanners for real gate detection
-- Direction detection (ENTER vs EXIT)
-- MQTT support for distributed scanners
-- Full production deployment
+```bash
+python3 setup_new_system.py
+```
 
-## 📊 Features
+This creates `boat_tracking.db` with sample boats and beacons for testing.
 
-- **🔍 BLE Detection**: Real-time beacon scanning with RSSI analysis
-- **📈 Health Scoring**: 0-100 intelligent health scores
-- **📱 Live Dashboard**: Real-time web interface with WebSocket updates
-- **🔧 Maintenance Alerts**: Automated service scheduling
-- **📊 Visualization**: RSSI plotting and data analysis tools
-- **🐳 Docker Support**: Complete containerization
+## Running
 
-## 📁 Project Structure
+### Full system (orchestrator)
+
+Starts API server, two scanners (inner/outer), and the web dashboard.
+
+```bash
+python3 boat_tracking_system.py
+```
+
+Defaults:
+- API Server: http://localhost:8000
+- Web Dashboard: http://localhost:5000
+
+You can also override ports:
+
+```bash
+python3 boat_tracking_system.py --api-port 8001 --web-port 5001
+```
+
+### Components separately
+
+API server only:
+
+```bash
+python3 api_server.py --port 8000
+```
+
+Scanner (run one per scanner location):
+
+```bash
+python3 ble_scanner.py --scanner-id gate-outer --server-url http://localhost:8000
+python3 ble_scanner.py --scanner-id gate-inner --server-url http://localhost:8000
+```
+
+## Registering a New Beacon
+
+1. Open the web dashboard at http://localhost:5000
+2. Click “Register New Beacon”
+3. Click “Start Scanning” – only iBeacon devices are listed
+4. Select your beacon (name and MAC are shown), complete boat details, save
+
+The beacon is assigned to the boat and appears on the dashboard and in the API.
+
+## Features
+
+- iBeacon-only filtering at the scanner level (Apple manufacturer data 0x004C, subtype 0x02 0x15)
+- Beacon discovery and registration workflow
+- One active beacon per boat enforced by the database
+- Presence summary and recent detections
+
+## REST API (selected)
+
+```
+POST /api/v1/detections              # Scanner → server observations
+GET  /api/v1/boats                   # List boats
+POST /api/v1/boats                   # Create boat
+POST /api/v1/boats/{id}/assign-beacon
+GET  /api/v1/beacons                 # List beacons
+GET  /api/v1/presence                # Presence summary
+GET  /health                         # Health check
+```
+
+## Project Structure
 
 ```
 grp_project/
-├── run.py                    # 🚀 Single entry point script
-├── README.md                 # This file
-└── rowing_system/            # Main system directory
-    ├── main.py              # System manager
-    ├── scanner.py           # BLE scanner service
-    ├── backend.py           # FastAPI web server
-    ├── health_scoring.py    # Health scoring algorithm
-    ├── visualization.py     # Data analysis tools
-    ├── config.yaml          # Configuration
-    ├── static/dashboard.html # Web dashboard
-    └── ...                  # Other system files
+├── api_server.py              # REST API (Flask) and presence endpoints
+├── ble_scanner.py             # BLE scanner (filters iBeacon) and posts detections
+├── boat_tracking_system.py    # Orchestrator (API + scanners + dashboard)
+├── database_models.py         # SQLite models and CRUD
+├── entry_exit_fsm.py          # Entry/exit finite state machine
+├── setup_new_system.py        # DB initialization and sample data
+├── requirements_new.txt       # Python dependencies
+├── MIGRATION_GUIDE.md         # Notes for migrating from single-beacon system
+├── kill_boat_servers.sh       # Safe cleanup of system processes/ports
+└── README.md                  # This file
 ```
 
-## 🔧 Configuration
+Note: legacy single-beacon scripts were removed or superseded.
 
-Edit `rowing_system/config.yaml` to customize:
-- RSSI thresholds
-- Health scoring parameters
-- Maintenance intervals
-- Scanner settings
+## Troubleshooting
 
-## 📚 Documentation
+- Port in use (8000/5000): use `./kill_boat_servers.sh` to stop previous runs.
+- BLE permissions: ensure your user can access the BLE adapter (Bluetooth group or run with appropriate permissions).
+- No beacons listed: ensure your device is broadcasting iBeacon frames.
 
-For detailed documentation, see `rowing_system/README.md`
+## Development Notes
 
-## 🤝 Support
-
-- Check the troubleshooting section in the detailed README
-- Review configuration options
-- Use `python3 run.py --status` to check system health
+- The scanner captures device local name and MAC and forwards them to the server.
+- The web dashboard lists only beacons not yet assigned during registration.
 
 ---
 
-**Happy Rowing! 🚣‍♂️**
+For migration details from the old single-beacon scripts, see `MIGRATION_GUIDE.md`.

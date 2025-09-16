@@ -44,6 +44,14 @@ class APIServer:
     def setup_routes(self):
         """Setup all API routes."""
         
+        # Simple admin auth (hardcoded credentials)
+        ADMIN_USER = 'admin_red_shed'
+        ADMIN_PASS = 'Bmrc_2025'
+
+        def _is_admin(req):
+            data = req.get_json(silent=True) or {}
+            return data.get('user') == ADMIN_USER and data.get('pass') == ADMIN_PASS
+
         # Detection endpoints
         @self.app.route('/api/v1/detections', methods=['POST'])
         def post_detections():
@@ -213,13 +221,37 @@ class APIServer:
             except Exception as e:
                 logger.error(f"Error updating beacon: {e}")
                 return jsonify({'error': str(e)}), 500
+
+        # Admin: reset assignments and states
+        @self.app.route('/api/admin/reset', methods=['POST'])
+        def admin_reset():
+            try:
+                if not _is_admin(request):
+                    return jsonify({'error': 'Unauthorized'}), 401
+                data = request.get_json(silent=True) or {}
+                if data.get('dry'):
+                    return jsonify({'message': 'Auth OK'})
+                self.db.reset_all()
+                return jsonify({'message': 'System reset complete'})
+            except Exception as e:
+                logger.error(f"Error during admin reset: {e}")
+                return jsonify({'error': str(e)}), 500
         
         # Presence endpoints
         @self.app.route('/api/v1/presence', methods=['GET'])
         def get_presence():
-            """Get current boat presence status."""
-            boats_in_harbor = self.db.get_boats_in_harbor()
-            
+            """Get current boat presence status.
+            Uses boat status (IN_HARBOR) as truth. Falls back from FSM state to status to
+            support single-scanner deployments where FSM ENTERED may not be set.
+            """
+            boats = self.db.get_all_boats()
+            boats_in_harbor = []
+            for b in boats:
+                if getattr(b.status, 'value', str(b.status)) in ('in_harbor', 'IN_HARBOR') or str(b.status) == 'BoatStatus.IN_HARBOR':
+                    beacon = self.db.get_beacon_by_boat(b.id)
+                    if beacon:
+                        boats_in_harbor.append((b, beacon))
+
             return jsonify({
                 'boats_in_harbor': [{
                     'boat_id': boat.id,

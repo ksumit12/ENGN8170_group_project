@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Red Shed • Reports</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100">
+  <div class="max-w-6xl mx-auto p-4">
+    <a class="text-slate-300 hover:underline" href="/ui/dashboard.html">← Back</a>
+    <h1 class="text-2xl font-bold mt-2 mb-3">Usage Reports</h1>
+    <div class="grid md:grid-cols-4 gap-2 mb-3">
+      <input id="from" class="px-2 py-1 rounded bg-slate-700" placeholder="From (ISO)" />
+      <input id="to" class="px-2 py-1 rounded bg-slate-700" placeholder="To (ISO)" />
+      <input id="boat" class="px-2 py-1 rounded bg-slate-700" placeholder="Boat ID (optional)" />
+      <button id="run" class="px-3 py-1 bg-slate-700 rounded">Run</button>
+    </div>
+    <div class="mb-3 space-x-2">
+      <a id="csv" class="px-3 py-1 bg-slate-700 rounded" href="#">Export CSV</a>
+      <a id="pdf" class="px-3 py-1 bg-slate-700 rounded" href="#">Export PDF</a>
+    </div>
+    <table class="w-full text-left text-sm">
+      <thead class="text-slate-300"><tr><th class="py-1">Boat ID</th><th>Total Outings</th><th>Total Minutes</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <script>
+    async function run(){
+      const qs = new URLSearchParams(); if(from.value)qs.set('from',from.value); if(to.value)qs.set('to',to.value); if(boat.value)qs.set('boatId',boat.value);
+      const data = await fetch('/api/reports/usage?'+qs.toString()).then(r=>r.json());
+      rows.innerHTML = data.map(r=>`<tr class="border-b border-slate-800"><td class="py-1">${r.boat_id}</td><td>${r.total_outings}</td><td>${r.total_minutes}</td></tr>`).join('');
+      csv.href = '/api/reports/usage/export.csv?'+qs.toString();
+      pdf.href = '/api/reports/usage/export.pdf?'+qs.toString();
+    }
+    runBtn = document.getElementById('run'); runBtn.onclick=run;
+  </script>
+</body>
+</html>
+
+
+
+

@@ -79,11 +79,42 @@ class Scanner:
 
 class DatabaseManager:
     def __init__(self, db_path: str = "boat_tracking.db"):
+        # Always use a stable absolute path under project/data to prevent accidental
+        # creation of a new empty database when CWD changes.
+        import os
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        if not os.path.isabs(db_path):
+            data_dir = os.path.join(base_dir, 'data')
+            os.makedirs(data_dir, exist_ok=True)
+            candidate = os.path.join(data_dir, db_path)
+            # Backward compatibility: if legacy DB exists in project root, prefer it
+            legacy = os.path.join(base_dir, db_path)
+            if os.path.exists(legacy) and not os.path.exists(candidate):
+                db_path = legacy
+            else:
+                db_path = candidate
         self.db_path = db_path
+        self._ensure_backup_dir()
         self.init_database()
+
+    def _ensure_backup_dir(self):
+        import os
+        bdir = os.path.join(os.path.dirname(self.db_path), 'backups')
+        os.makedirs(bdir, exist_ok=True)
+        self._backup_dir = bdir
     
     def init_database(self):
         """Initialize database with all required tables."""
+        # Safeguard: if DB exists, make a lightweight backup once per day
+        import os, shutil, datetime
+        if os.path.exists(self.db_path):
+            stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d')
+            backup_path = os.path.join(self._backup_dir, f'boat_tracking_{stamp}.sqlite')
+            if not os.path.exists(backup_path):
+                try:
+                    shutil.copy2(self.db_path, backup_path)
+                except Exception:
+                    pass
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
@@ -239,6 +270,31 @@ class DatabaseManager:
             cursor.execute("""
                 UPDATE boats SET status = ?, updated_at = ? WHERE id = ?
             """, (status.value, now, boat_id))
+            conn.commit()
+
+    def update_boat(self, boat_id: str, name: Optional[str] = None,
+                    class_type: Optional[str] = None, notes: Optional[str] = None) -> None:
+        """Update boat metadata (name, class, notes). Ignores None fields."""
+        now = datetime.now(timezone.utc)
+        sets = []
+        args = []
+        if name is not None:
+            sets.append("name = ?")
+            args.append(name)
+        if class_type is not None:
+            sets.append("class_type = ?")
+            args.append(class_type)
+        if notes is not None:
+            sets.append("notes = ?")
+            args.append(notes)
+        if not sets:
+            return
+        sets.append("updated_at = ?")
+        args.append(now)
+        args.append(boat_id)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"UPDATE boats SET {' , '.join(sets)} WHERE id = ?", args)
             conn.commit()
     
     # Beacon operations
@@ -481,6 +537,46 @@ class DatabaseManager:
                 )
                 boats_in_harbor.append((boat, beacon))
         return boats_in_harbor
+
+    # Administrative operations
+    def reset_all(self) -> None:
+        """Reset all beacon assignments and states.
+
+        - Deactivate all active assignments
+        - Mark all beacons as UNCLAIMED
+        - Clear beacon FSM states
+        - Delete all boats and detections
+        - Clear all historical data for a fresh start
+        """
+        now = datetime.now(timezone.utc)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            # Deactivate assignments
+            cursor.execute(
+                """
+                UPDATE boat_beacon_assignments
+                SET is_active = 0, unassigned_at = ?
+                WHERE is_active = 1
+                """,
+                (now,)
+            )
+            # Mark all beacons as unclaimed
+            cursor.execute(
+                """
+                UPDATE beacons
+                SET status = ?, updated_at = ?
+                """,
+                (BeaconStatus.UNCLAIMED.value, now)
+            )
+            # Delete all boats to completely reset the system
+            cursor.execute("DELETE FROM boats")
+            # Clear FSM states
+            cursor.execute("DELETE FROM beacon_states")
+            # Clear detections history to avoid visual clutter
+            cursor.execute("DELETE FROM detections")
+            # Clear all assignments (both active and inactive)
+            cursor.execute("DELETE FROM boat_beacon_assignments")
+            conn.commit()
 
     # Additional helpers
     def update_beacon(self, beacon_id: str, name: Optional[str] = None, notes: Optional[str] = None):
