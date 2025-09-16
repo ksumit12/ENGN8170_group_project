@@ -11,6 +11,7 @@ import requests
 import argparse
 import subprocess
 import sys
+import traceback
 from typing import List, Optional
 from flask import Flask, render_template_string, jsonify, request
 from datetime import datetime, timezone, timedelta
@@ -24,25 +25,38 @@ from database_models import DatabaseManager, BoatStatus
 from ble_scanner import BLEScanner, ScannerConfig
 from api_server import APIServer
 import admin_service
+from logging_config import get_logger, setup_logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Setup comprehensive logging
+system_logger = setup_logging()
+logger = system_logger
 
 class BoatTrackingSystem:
     def __init__(self, config: dict):
-        self.config = config
-        self.db = DatabaseManager(config['database_path'])
-        self.api_server = None
-        self.scanners: List[BLEScanner] = []
-        self.running = False
-        
-        # Web dashboard
-        self.web_app = Flask(__name__)
-        CORS(self.web_app)
-        self.setup_web_routes()
-        # simple settings persistence (file-based to avoid DB migration)
-        self.settings_file = 'settings.json'
+        try:
+            self.config = config
+            self.db = DatabaseManager(config['database_path'])
+            self.api_server = None
+            self.scanners: List[BLEScanner] = []
+            self.running = False
+            
+            # Web dashboard
+            self.web_app = Flask(__name__)
+            CORS(self.web_app)
+            self.setup_web_routes()
+            # simple settings persistence (file-based to avoid DB migration)
+            self.settings_file = 'settings.json'
+            
+            # Initialize status monitoring
+            self.health_check_interval = 30  # seconds
+            self.last_health_check = datetime.now(timezone.utc)
+            
+            logger.info("BoatTrackingSystem initialized successfully", "INIT")
+            logger.audit("SYSTEM_INIT", "SYSTEM", f"Config: {config}")
+            
+        except Exception as e:
+            logger.critical(f"Failed to initialize BoatTrackingSystem: {e}", "INIT", e)
+            raise
     
     def setup_web_routes(self):
         """Setup web dashboard routes."""
@@ -385,96 +399,257 @@ class BoatTrackingSystem:
         @self.web_app.route('/api/register-beacon', methods=['POST'])
         def register_beacon():
             try:
-                code, payload = admin_service.register_beacon(self.db, request.get_json() or {})
+                data = request.get_json() or {}
+                logger.audit("BEACON_REGISTER_ATTEMPT", "WEB", f"MAC: {data.get('mac_address', 'unknown')}")
+                
+                code, payload = admin_service.register_beacon(self.db, data)
+                
+                if code == 200:
+                    logger.audit("BEACON_REGISTER_SUCCESS", "WEB", f"MAC: {data.get('mac_address')}, Boat: {data.get('boat_name')}")
+                else:
+                    logger.warning(f"Beacon registration failed: {payload}", "WEB")
+                
                 return jsonify(payload), code
             except Exception as e:
-                logger.exception('register_beacon failed')
+                logger.error(f"register_beacon failed: {e}", "WEB", e)
                 return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.web_app.route('/api/logs')
+        def api_logs():
+            """Get recent system logs for monitoring."""
+            try:
+                log_type = request.args.get('type', 'main')
+                count = min(int(request.args.get('count', '50')), 200)  # Limit to 200 entries
+                
+                if log_type == 'errors':
+                    logs = logger.get_recent_errors(count)
+                else:
+                    logs = logger.get_recent_logs(count)
+                
+                return jsonify({
+                    'logs': [line.strip() for line in logs],
+                    'count': len(logs),
+                    'type': log_type
+                })
+            except Exception as e:
+                logger.error(f"Failed to get logs: {e}", "API", e)
+                return jsonify({'error': str(e)}), 500
+        
+        @self.web_app.route('/api/status')
+        def api_status():
+            """Get system status and health information."""
+            try:
+                status = logger.get_status()
+                
+                # Add additional runtime status
+                status.update({
+                    'scanners_count': len(self.scanners),
+                    'scanners_running': sum(1 for s in self.scanners if hasattr(s, 'scanning') and s.scanning),
+                    'api_server_running': self.api_server is not None,
+                    'database_connected': True,  # Will be updated by health check
+                    'uptime_seconds': (datetime.now(timezone.utc) - status['system_started']).total_seconds(),
+                    'last_health_check': self.last_health_check.isoformat()
+                })
+                
+                return jsonify(status)
+            except Exception as e:
+                logger.error(f"Failed to get status: {e}", "API", e)
+                return jsonify({'error': str(e)}), 500
     
     def start_api_server(self):
         """Start the API server."""
-        self.api_server = APIServer(
-            db_path=self.config['database_path'],
-            outer_scanner_id=self.config['outer_scanner_id'],
-            inner_scanner_id=self.config['inner_scanner_id']
-        )
-        
-        api_thread = threading.Thread(
-            target=self.api_server.run,
-            kwargs={
-                'host': self.config['api_host'],
-                'port': self.config['api_port'],
-                'debug': False
-            },
-            daemon=True
-        )
-        api_thread.start()
-        logger.info(f"API server started on {self.config['api_host']}:{self.config['api_port']}")
+        try:
+            self.api_server = APIServer(
+                db_path=self.config['database_path'],
+                outer_scanner_id=self.config['outer_scanner_id'],
+                inner_scanner_id=self.config['inner_scanner_id']
+            )
+            
+            api_thread = threading.Thread(
+                target=self._run_api_server,
+                daemon=True
+            )
+            api_thread.start()
+            logger.info(f"API server thread started on {self.config['api_host']}:{self.config['api_port']}", "API")
+            logger.audit("API_SERVER_START", "SYSTEM", f"Host: {self.config['api_host']}, Port: {self.config['api_port']}")
+            
+        except Exception as e:
+            logger.critical(f"Failed to start API server: {e}", "API", e)
+            raise
+    
+    def _run_api_server(self):
+        """Internal method to run API server with error handling."""
+        try:
+            self.api_server.run(
+                host=self.config['api_host'],
+                port=self.config['api_port'],
+                debug=False
+            )
+        except Exception as e:
+            logger.critical(f"API server crashed: {e}", "API", e)
+            logger.update_status('api_healthy', False)
     
     def start_scanners(self):
         """Start BLE scanners."""
-        # Resolve a client-usable API host. 0.0.0.0 is a bind address, not a client address.
-        api_host = self.config['api_host']
-        client_api_host = 'localhost' if api_host in ('0.0.0.0', '::', '0:0:0:0:0:0:0:0') else api_host
-        server_base_url = f"http://{client_api_host}:{self.config['api_port']}"
+        try:
+            # Resolve a client-usable API host. 0.0.0.0 is a bind address, not a client address.
+            api_host = self.config['api_host']
+            client_api_host = 'localhost' if api_host in ('0.0.0.0', '::', '0:0:0:0:0:0:0:0') else api_host
+            server_base_url = f"http://{client_api_host}:{self.config['api_port']}"
 
-        for scanner_config in self.config['scanners']:
-            config = ScannerConfig(
-                scanner_id=scanner_config['id'],
-                server_url=server_base_url,
-                api_key=scanner_config.get('api_key', 'default-key'),
-                rssi_threshold=scanner_config.get('rssi_threshold', -80),
-                scan_interval=scanner_config.get('scan_interval', 1.0)
-            )
+            for scanner_config in self.config['scanners']:
+                try:
+                    config = ScannerConfig(
+                        scanner_id=scanner_config['id'],
+                        server_url=server_base_url,
+                        api_key=scanner_config.get('api_key', 'default-key'),
+                        rssi_threshold=scanner_config.get('rssi_threshold', -80),
+                        scan_interval=scanner_config.get('scan_interval', 1.0)
+                    )
+                    
+                    scanner = BLEScanner(config)
+                    scanner.start_scanning()
+                    self.scanners.append(scanner)
+                    logger.info(f"Scanner {scanner_config['id']} started successfully", "SCANNER")
+                    logger.audit("SCANNER_START", "SYSTEM", f"Scanner ID: {scanner_config['id']}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to start scanner {scanner_config['id']}: {e}", "SCANNER", e)
+                    continue
             
-            scanner = BLEScanner(config)
-            scanner.start_scanning()
-            self.scanners.append(scanner)
-            logger.info(f"Scanner {scanner_config['id']} started")
+            logger.update_status('scanners_active', len(self.scanners))
+            
+        except Exception as e:
+            logger.critical(f"Failed to start scanners: {e}", "SCANNER", e)
+            raise
     
     def start_web_dashboard(self):
         """Start web dashboard."""
-        web_thread = threading.Thread(
-            target=self.web_app.run,
-            kwargs={
-                'host': self.config['web_host'],
-                'port': self.config['web_port'],
-                'debug': False
-            },
-            daemon=True
-        )
-        web_thread.start()
-        logger.info(f"Web dashboard started on {self.config['web_host']}:{self.config['web_port']}")
+        try:
+            web_thread = threading.Thread(
+                target=self._run_web_dashboard,
+                daemon=True
+            )
+            web_thread.start()
+            logger.info(f"Web dashboard thread started on {self.config['web_host']}:{self.config['web_port']}", "WEB")
+            logger.audit("WEB_DASHBOARD_START", "SYSTEM", f"Host: {self.config['web_host']}, Port: {self.config['web_port']}")
+            
+        except Exception as e:
+            logger.critical(f"Failed to start web dashboard: {e}", "WEB", e)
+            raise
+    
+    def _run_web_dashboard(self):
+        """Internal method to run web dashboard with error handling."""
+        try:
+            self.web_app.run(
+                host=self.config['web_host'],
+                port=self.config['web_port'],
+                debug=False
+            )
+        except Exception as e:
+            logger.critical(f"Web dashboard crashed: {e}", "WEB", e)
     
     def start(self):
         """Start the entire system."""
-        logger.info("Starting Boat Tracking System...")
+        try:
+            logger.info("Starting Boat Tracking System...", "SYSTEM")
+            logger.audit("SYSTEM_START", "SYSTEM", "Boat Tracking System starting")
+            
+            # Start API server
+            self.start_api_server()
+            time.sleep(2)  # Give API server time to start
+            
+            # Start scanners
+            self.start_scanners()
+            
+            # Start web dashboard
+            self.start_web_dashboard()
+            
+            # Start health monitoring
+            self._start_health_monitoring()
+            
+            self.running = True
+            logger.info("Boat Tracking System started successfully", "SYSTEM")
+            logger.info(f"API Server: http://{self.config['api_host']}:{self.config['api_port']}", "SYSTEM")
+            logger.info(f"Web Dashboard: http://{self.config['web_host']}:{self.config['web_port']}", "SYSTEM")
+            logger.audit("SYSTEM_START_SUCCESS", "SYSTEM", "All components started successfully")
+            
+        except Exception as e:
+            logger.critical(f"Failed to start Boat Tracking System: {e}", "SYSTEM", e)
+            self.stop()  # Cleanup on failure
+            raise
+    
+    def _start_health_monitoring(self):
+        """Start background health monitoring thread."""
+        def health_monitor():
+            while self.running:
+                try:
+                    self._perform_health_check()
+                    time.sleep(self.health_check_interval)
+                except Exception as e:
+                    logger.error(f"Health check failed: {e}", "HEALTH", e)
+                    time.sleep(5)  # Short delay before retry
         
-        # Start API server
-        self.start_api_server()
-        time.sleep(2)  # Give API server time to start
-        
-        # Start scanners
-        self.start_scanners()
-        
-        # Start web dashboard
-        self.start_web_dashboard()
-        
-        self.running = True
-        logger.info("Boat Tracking System started successfully")
-        logger.info(f"API Server: http://{self.config['api_host']}:{self.config['api_port']}")
-        logger.info(f"Web Dashboard: http://{self.config['web_host']}:{self.config['web_port']}")
+        health_thread = threading.Thread(target=health_monitor, daemon=True)
+        health_thread.start()
+        logger.info("Health monitoring started", "HEALTH")
+    
+    def _perform_health_check(self):
+        """Perform system health check."""
+        try:
+            self.last_health_check = datetime.now(timezone.utc)
+            
+            # Check database connectivity
+            try:
+                self.db.get_connection()
+                logger.update_status('database_healthy', True)
+            except Exception as e:
+                logger.update_status('database_healthy', False)
+                logger.warning(f"Database health check failed: {e}", "HEALTH")
+            
+            # Check scanner status
+            active_scanners = sum(1 for s in self.scanners if hasattr(s, 'scanning') and s.scanning)
+            logger.update_status('scanners_running', active_scanners)
+            
+            # Check API server (basic connectivity test)
+            try:
+                response = requests.get(f"http://localhost:{self.config['api_port']}/api/v1/health", timeout=5)
+                if response.status_code == 200:
+                    logger.update_status('api_healthy', True)
+                else:
+                    logger.update_status('api_healthy', False)
+            except Exception:
+                logger.update_status('api_healthy', False)
+            
+            logger.debug("Health check completed", "HEALTH")
+            
+        except Exception as e:
+            logger.error(f"Health check error: {e}", "HEALTH", e)
     
     def stop(self):
         """Stop the entire system."""
-        logger.info("Stopping Boat Tracking System...")
-        
-        # Stop scanners
-        for scanner in self.scanners:
-            scanner.stop_scanning()
-        
-        self.running = False
-        logger.info("Boat Tracking System stopped")
+        try:
+            logger.info("Stopping Boat Tracking System...", "SYSTEM")
+            logger.audit("SYSTEM_STOP", "SYSTEM", "Boat Tracking System stopping")
+            
+            self.running = False
+            
+            # Stop scanners
+            for scanner in self.scanners:
+                try:
+                    scanner.stop_scanning()
+                    logger.info(f"Scanner {getattr(scanner, 'scanner_id', 'unknown')} stopped", "SCANNER")
+                except Exception as e:
+                    logger.error(f"Error stopping scanner: {e}", "SCANNER", e)
+            
+            # Clear scanner list
+            self.scanners.clear()
+            
+            logger.info("Boat Tracking System stopped successfully", "SYSTEM")
+            logger.audit("SYSTEM_STOP_SUCCESS", "SYSTEM", "All components stopped successfully")
+            
+        except Exception as e:
+            logger.critical(f"Error during system shutdown: {e}", "SYSTEM", e)
     
     def get_dashboard_html(self):
         """Get HTML for the web dashboard."""
@@ -561,6 +736,7 @@ class BoatTrackingSystem:
             <div style="display:flex; gap:8px; align-items:center;">
                 <a href="/admin" class="primary-btn" style="text-decoration:none; display:inline-block;">Admin</a>
                 <button class="primary-btn" onclick="openBeaconDiscovery()">+ Register New Beacon</button>
+                <button class="primary-btn" onclick="openLogViewer()" style="background:#6c757d;">📋 Logs</button>
             </div>
         </div>
         <div id="overdueBanner" style="display:none; margin:10px 0; padding:12px; background:#b02a37; color:white; border-radius:8px; animation: blink 1s infinite;">
@@ -745,6 +921,53 @@ class BoatTrackingSystem:
                     ">Register Beacon</button>
                 </div>
             </form>
+        </div>
+    </div>
+    
+    <!-- Log Viewer Modal -->
+    <div id="logModal" style="
+        display: none; position: fixed; z-index: 1002; left: 0; top: 0; 
+        width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);
+    ">
+        <div style="
+            background-color: white; margin: 2% auto; padding: 20px; 
+            border-radius: 15px; width: 95%; max-width: 1200px; max-height: 90vh;
+            overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        ">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="color: #2c3e50; margin: 0;">System Logs & Status</h2>
+                <button onclick="closeLogViewer()" style="
+                    background: #dc3545; color: white; border: none; padding: 8px 16px; 
+                    border-radius: 20px; cursor: pointer; font-size: 1.2rem;
+                ">×</button>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <button onclick="loadLogs('main')" style="
+                    background: #007bff; color: white; border: none; padding: 8px 16px; 
+                    border-radius: 20px; cursor: pointer; margin-right: 10px;
+                ">Main Logs</button>
+                <button onclick="loadLogs('errors')" style="
+                    background: #dc3545; color: white; border: none; padding: 8px 16px; 
+                    border-radius: 20px; cursor: pointer; margin-right: 10px;
+                ">Error Logs</button>
+                <button onclick="loadSystemStatus()" style="
+                    background: #28a745; color: white; border: none; padding: 8px 16px; 
+                    border-radius: 20px; cursor: pointer; margin-right: 10px;
+                ">System Status</button>
+                <button onclick="refreshLogs()" style="
+                    background: #6c757d; color: white; border: none; padding: 8px 16px; 
+                    border-radius: 20px; cursor: pointer;
+                ">Refresh</button>
+            </div>
+            
+            <div id="logContent" style="
+                background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; 
+                padding: 15px; max-height: 500px; overflow-y: auto; font-family: monospace; 
+                font-size: 12px; white-space: pre-wrap;
+            ">
+                Click a button above to load logs or status information.
+            </div>
         </div>
     </div>
     
@@ -1093,6 +1316,83 @@ class BoatTrackingSystem:
                 alert('Error registering beacon: ' + error.message);
             });
         }
+        
+        // Log Viewer Functions
+        function openLogViewer() {
+            document.getElementById('logModal').style.display = 'block';
+            loadSystemStatus(); // Load status by default
+        }
+        
+        function closeLogViewer() {
+            document.getElementById('logModal').style.display = 'none';
+        }
+        
+        function loadLogs(logType) {
+            const logContent = document.getElementById('logContent');
+            logContent.textContent = 'Loading logs...';
+            
+            fetch(`/api/logs?type=${logType}&count=100`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.logs && data.logs.length > 0) {
+                        logContent.textContent = data.logs.join('\\n');
+                    } else {
+                        logContent.textContent = 'No logs found.';
+                    }
+                })
+                .catch(error => {
+                    logContent.textContent = 'Error loading logs: ' + error.message;
+                });
+        }
+        
+        function loadSystemStatus() {
+            const logContent = document.getElementById('logContent');
+            logContent.textContent = 'Loading system status...';
+            
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusText = `SYSTEM STATUS
+================
+System Started: ${new Date(data.system_started).toLocaleString()}
+Uptime: ${Math.round(data.uptime_seconds / 60)} minutes
+Last Health Check: ${new Date(data.last_health_check).toLocaleString()}
+
+COMPONENT STATUS
+================
+API Server: ${data.api_server_running ? '✅ Running' : '❌ Stopped'}
+Database: ${data.database_healthy ? '✅ Healthy' : '❌ Unhealthy'}
+Scanners: ${data.scanners_running}/${data.scanners_count} Active
+
+ERRORS & ISSUES
+================
+Total Errors: ${data.error_count}
+Last Error: ${data.last_error ? new Date(data.last_error.timestamp).toLocaleString() + ' - ' + data.last_error.message : 'None'}
+
+RECENT ACTIVITY
+================
+Last Scan: ${data.last_scan ? new Date(data.last_scan).toLocaleString() : 'Never'}
+Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleString() : 'Never'}`;
+                    
+                    logContent.textContent = statusText;
+                })
+                .catch(error => {
+                    logContent.textContent = 'Error loading status: ' + error.message;
+                });
+        }
+        
+        function refreshLogs() {
+            // Reload whatever is currently displayed
+            const buttons = document.querySelectorAll('#logModal button');
+            for (let button of buttons) {
+                if (button.style.backgroundColor === 'rgb(40, 167, 69)') { // Green button (System Status)
+                    loadSystemStatus();
+                    return;
+                }
+            }
+            // Default to main logs if no button is highlighted
+            loadLogs('main');
+        }
     </script>
 </body>
 </html>
@@ -1315,39 +1615,47 @@ def get_default_config():
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Boat Tracking System")
-    parser.add_argument("--config", help="Configuration file path")
-    parser.add_argument("--api-port", type=int, default=8000, help="API server port")
-    parser.add_argument("--web-port", type=int, default=5000, help="Web dashboard port")
-    parser.add_argument("--db-path", default="boat_tracking.db", help="Database file path")
-    
-    args = parser.parse_args()
-    
-    # Load configuration
-    config = get_default_config()
-    if args.config:
-        # Load from file (implement if needed)
-        pass
-    
-    # Override with command line args
-    config['api_port'] = args.api_port
-    config['web_port'] = args.web_port
-    config['database_path'] = args.db_path
-    
-    # Create and start system
-    system = BoatTrackingSystem(config)
-    
     try:
-        system.start()
-        logger.info("System running. Press Ctrl+C to stop.")
+        parser = argparse.ArgumentParser(description="Boat Tracking System")
+        parser.add_argument("--config", help="Configuration file path")
+        parser.add_argument("--api-port", type=int, default=8000, help="API server port")
+        parser.add_argument("--web-port", type=int, default=5000, help="Web dashboard port")
+        parser.add_argument("--db-path", default="boat_tracking.db", help="Database file path")
         
-        # Keep main thread alive
-        while True:
-            time.sleep(1)
+        args = parser.parse_args()
+        
+        # Load configuration
+        config = get_default_config()
+        if args.config:
+            # Load from file (implement if needed)
+            pass
+        
+        # Override with command line args
+        config['api_port'] = args.api_port
+        config['web_port'] = args.web_port
+        config['database_path'] = args.db_path
+        
+        logger.info(f"Starting Boat Tracking System with config: {config}", "MAIN")
+        
+        # Create and start system
+        system = BoatTrackingSystem(config)
+        
+        try:
+            system.start()
+            logger.info("System running. Press Ctrl+C to stop.", "MAIN")
             
-    except KeyboardInterrupt:
-        logger.info("Shutting down...")
-        system.stop()
+            # Keep main thread alive
+            while True:
+                time.sleep(1)
+                
+        except KeyboardInterrupt:
+            logger.info("Shutdown requested by user", "MAIN")
+            system.stop()
+            
+    except Exception as e:
+        logger.critical(f"Fatal error in main: {e}", "MAIN", e)
+        print(f"Fatal error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
