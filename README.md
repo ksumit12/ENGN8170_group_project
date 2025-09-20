@@ -97,25 +97,57 @@ GET  /health                         # Health check
 
 ```
 grp_project/
+├── boat_tracking_system.py    # Main orchestrator (API + scanners + dashboard)
 ├── api_server.py              # REST API (Flask) and presence endpoints
 ├── ble_scanner.py             # BLE scanner (filters iBeacon) and posts detections
-├── boat_tracking_system.py    # Orchestrator (API + scanners + dashboard)
 ├── database_models.py         # SQLite models and CRUD
 ├── entry_exit_fsm.py          # Entry/exit finite state machine
-├── setup_new_system.py        # DB initialization and sample data
-├── requirements_new.txt       # Python dependencies
-├── MIGRATION_GUIDE.md         # Notes for migrating from single-beacon system
-├── kill_boat_servers.sh       # Safe cleanup of system processes/ports
+├── admin_service.py           # Admin operations service
+├── logging_config.py          # Centralized logging configuration
+├── requirements.txt           # Python dependencies
+├── data/                      # Database and logs directory
+│   ├── boat_tracking.db      # SQLite database
+│   └── logs/                 # System logs
+├── tools/                     # Utility tools and scripts
+│   ├── ble_testing/          # BLE scanner testing tools
+│   │   ├── identify_ble_dongles.py
+│   │   ├── scanner_range_test.py
+│   │   ├── ble_scanner_tester.py
+│   │   └── BLE_TESTING_GUIDE.md
+│   ├── network/              # Network access tools
+│   │   ├── get_ip.py
+│   │   ├── start_network.sh
+│   │   └── configure_firewall.sh
+│   ├── scripts/              # Utility scripts
+│   │   ├── kill_all_servers.sh
+│   │   └── kill_boat_servers.sh
+│   └── logs/                 # Log analysis tools (future)
 └── README.md                  # This file
 ```
 
-Note: legacy single-beacon scripts were removed or superseded.
+## Tools and Utilities
+
+### BLE Testing Tools (`tools/ble_testing/`)
+- Test BLE dongle range and performance
+- Identify available BLE adapters
+- Compare multiple scanners
+
+### Network Access Tools (`tools/network/`)
+- Make system accessible from other devices
+- Configure firewall for network access
+- Get Raspberry Pi IP address
+
+### Utility Scripts (`tools/scripts/`)
+- Kill system processes and free ports
+- Clean up running services
 
 ## Troubleshooting
 
-- Port in use (8000/5000): use `./kill_boat_servers.sh` to stop previous runs.
-- BLE permissions: ensure your user can access the BLE adapter (Bluetooth group or run with appropriate permissions).
-- No beacons listed: ensure your device is broadcasting iBeacon frames.
+- **Port in use (8000/5000)**: use `./tools/scripts/kill_boat_servers.sh` to stop previous runs
+- **BLE permissions**: ensure your user can access the BLE adapter (Bluetooth group or run with appropriate permissions)
+- **No beacons listed**: ensure your device is broadcasting iBeacon frames
+- **Network access issues**: use `./tools/network/get_ip.py` to get RPi IP and `./tools/network/configure_firewall.sh` to configure firewall
+- **BLE range testing**: use `./tools/ble_testing/scanner_range_test.py` to test dongle range
 
 ## Development Notes
 
