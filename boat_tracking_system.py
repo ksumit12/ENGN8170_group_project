@@ -736,7 +736,7 @@ class BoatTrackingSystem:
             <div style="display:flex; gap:8px; align-items:center;">
                 <a href="/admin" class="primary-btn" style="text-decoration:none; display:inline-block;">Admin</a>
                 <button class="primary-btn" onclick="openBeaconDiscovery()">+ Register New Beacon</button>
-                <button class="primary-btn" onclick="openLogViewer()" style="background:#6c757d;">📋 Logs</button>
+                <button class="primary-btn" onclick="openLogViewer()" style="background:#6c757d;">Logs</button>
             </div>
         </div>
         <div id="overdueBanner" style="display:none; margin:10px 0; padding:12px; background:#b02a37; color:white; border-radius:8px; animation: blink 1s infinite;">
@@ -1360,8 +1360,8 @@ Last Health Check: ${new Date(data.last_health_check).toLocaleString()}
 
 COMPONENT STATUS
 ================
-API Server: ${data.api_server_running ? '✅ Running' : '❌ Stopped'}
-Database: ${data.database_healthy ? '✅ Healthy' : '❌ Unhealthy'}
+API Server: ${data.api_server_running ? 'Running' : 'Stopped'}
+Database: ${data.database_healthy ? 'Healthy' : 'Unhealthy'}
 Scanners: ${data.scanners_running}/${data.scanners_count} Active
 
 ERRORS & ISSUES
