@@ -1,6 +1,6 @@
 # BLE Scanner Range Testing Guide
 
-This guide helps you test your two BLE dongles on the Raspberry Pi and determine their individual ranges with beacons.
+This guide helps you test your two TP-Link BLE dongles on the Raspberry Pi and determine their individual ranges with beacons.
 
 ## Quick Start
 
@@ -8,15 +8,18 @@ This guide helps you test your two BLE dongles on the Raspberry Pi and determine
 ```bash
 python3 identify_ble_dongles.py
 ```
-This will show you all available Bluetooth adapters and USB devices.
+This will show you all available Bluetooth adapters and USB devices, specifically identifying your TP-Link adapters.
 
 ### 2. Test Individual Scanner Range
 ```bash
-# Test first dongle (usually hci0)
-python3 scanner_range_test.py --adapter hci0 --duration 60
+# Test TP-Link Scanner #1 (hci2)
+python3 scanner_range_test.py --adapter hci2 --duration 60
 
-# Test second dongle (usually hci1)
+# Test TP-Link Scanner #2 (hci1)
 python3 scanner_range_test.py --adapter hci1 --duration 60
+
+# Test System Bluetooth (hci0)
+python3 scanner_range_test.py --adapter hci0 --duration 60
 ```
 
 ### 3. Test All Dongles at Once
@@ -45,20 +48,22 @@ IDENTIFYING BLE DONGLES/ADAPTERS
 
 1. BLUETOOTH ADAPTERS (hciconfig):
 -----------------------------------
-  Adapter 1: hci0
-    MAC: AA:BB:CC:DD:EE:FF
+  Adapter 1: hci2
+    Type: TP-Link BLE Scanner #1
+    MAC: Unknown
     Status: UP
 
-  Adapter 2: hci1
-    MAC: 11:22:33:44:55:66
-    Status: UP
+2. USB BLUETOOTH DEVICES (lsusb):
+-----------------------------------
+  Device 1: Bus 001 Device 004: ID 2357:0604 TP-Link TP-NmNk Bluetooth USB Adapter
+  Device 2: Bus 001 Device 003: ID 2357:0604 TP-Link TP-Link Bluetooth USB Adapter
 ```
 
 ### Step 2: Test Each Dongle Individually
 
-#### Test Dongle 1 (hci0):
+#### Test TP-Link Scanner #1 (hci2):
 ```bash
-python3 scanner_range_test.py --adapter hci0 --duration 60
+python3 scanner_range_test.py --adapter hci2 --duration 60
 ```
 
 **Instructions:**
@@ -68,12 +73,19 @@ python3 scanner_range_test.py --adapter hci0 --duration 60
 4. Return and repeat in different directions
 5. Try with obstacles (walls, doors, etc.)
 
-#### Test Dongle 2 (hci1):
+#### Test TP-Link Scanner #2 (hci1):
 ```bash
 python3 scanner_range_test.py --adapter hci1 --duration 60
 ```
 
 Repeat the same process as above.
+
+#### Test System Bluetooth (hci0):
+```bash
+python3 scanner_range_test.py --adapter hci0 --duration 60
+```
+
+This tests the built-in system Bluetooth for comparison.
 
 ### Step 3: Compare Results
 
@@ -87,10 +99,10 @@ The script will show you:
 
 If you have multiple beacons, test each one:
 ```bash
-# Test with beacon named "beacon_1"
-python3 scanner_range_test.py --adapter hci0 --beacon "beacon_1" --duration 60
+# Test with beacon named "beacon_1" using TP-Link Scanner #1
+python3 scanner_range_test.py --adapter hci2 --beacon "beacon_1" --duration 60
 
-# Test with beacon named "beacon_2"
+# Test with beacon named "beacon_2" using TP-Link Scanner #2
 python3 scanner_range_test.py --adapter hci1 --beacon "beacon_2" --duration 60
 ```
 

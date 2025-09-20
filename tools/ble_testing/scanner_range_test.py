@@ -59,10 +59,22 @@ class ScannerRangeTester:
         
         return False
     
+    def get_adapter_info(self, adapter: str) -> str:
+        """Get information about the adapter type"""
+        adapter_info = {
+            'hci0': 'System Bluetooth (Built-in)',
+            'hci1': 'TP-Link BLE Scanner #2 (USB)',
+            'hci2': 'TP-Link BLE Scanner #1 (USB)',
+            'hci3': 'Additional BLE Adapter'
+        }
+        return adapter_info.get(adapter, f'Unknown Adapter ({adapter})')
+
     async def scan_with_adapter(self, adapter: str, duration: int = 30):
         """Scan using a specific BLE adapter"""
+        adapter_type = self.get_adapter_info(adapter)
         print(f"\nSCANNING WITH ADAPTER: {adapter}")
-        print("=" * 40)
+        print(f"Adapter Type: {adapter_type}")
+        print("=" * 50)
         
         found_beacons = set()
         start_time = time.time()
@@ -83,7 +95,8 @@ class ScannerRangeTester:
                     'beacon_mac': device.address,
                     'rssi': advertisement_data.rssi,
                     'distance': distance,
-                    'adapter': adapter
+                    'adapter': adapter,
+                    'adapter_type': adapter_type
                 }
                 
                 self.readings.append(reading)
@@ -113,6 +126,7 @@ class ScannerRangeTester:
             
         except Exception as e:
             print(f"Error scanning with adapter {adapter}: {e}")
+            print(f"This might be because {adapter} is not available or not a BLE adapter")
             self.running = False
     
     def analyze_readings(self):
@@ -161,13 +175,15 @@ class ScannerRangeTester:
         """Test all available BLE adapters"""
         print("TESTING ALL BLE ADAPTERS")
         print("=" * 30)
+        print("Focusing on TP-Link BLE Scanners...")
         
-        # Common adapter names to try
-        adapters_to_test = ['hci0', 'hci1', 'hci2', 'hci3']
+        # Test TP-Link adapters first, then system adapter
+        adapters_to_test = ['hci2', 'hci1', 'hci0']  # TP-Link #1, TP-Link #2, System
         
         for adapter in adapters_to_test:
             try:
-                print(f"\nTesting adapter: {adapter}")
+                adapter_type = self.get_adapter_info(adapter)
+                print(f"\nTesting adapter: {adapter} ({adapter_type})")
                 self.readings.clear()  # Clear previous readings
                 await self.scan_with_adapter(adapter, duration)
                 self.analyze_readings()
@@ -207,8 +223,8 @@ class ScannerRangeTester:
         print("Check the analysis above for maximum range detected.")
 
 async def main():
-    parser = argparse.ArgumentParser(description="BLE Scanner Range Test")
-    parser.add_argument("--adapter", type=str, default="hci0", help="BLE adapter to use (hci0, hci1, etc.)")
+    parser = argparse.ArgumentParser(description="BLE Scanner Range Test for TP-Link Adapters")
+    parser.add_argument("--adapter", type=str, default="hci2", help="BLE adapter to use (hci2=TP-Link #1, hci1=TP-Link #2, hci0=System)")
     parser.add_argument("--duration", type=int, default=30, help="Scan duration in seconds")
     parser.add_argument("--beacon", type=str, help="Target specific beacon name")
     parser.add_argument("--test-all", action="store_true", help="Test all available adapters")
@@ -217,6 +233,13 @@ async def main():
     args = parser.parse_args()
     
     tester = ScannerRangeTester()
+    
+    # Show adapter mapping
+    print("TP-LINK BLE ADAPTER MAPPING:")
+    print("hci2 = TP-Link BLE Scanner #1 (Primary)")
+    print("hci1 = TP-Link BLE Scanner #2 (Secondary)")
+    print("hci0 = System Bluetooth (Built-in)")
+    print()
     
     try:
         if args.interactive:

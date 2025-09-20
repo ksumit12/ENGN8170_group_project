@@ -30,10 +30,17 @@ def get_bluetooth_adapters() -> List[Dict[str, str]]:
                 mac_match = re.search(r'([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})', line)
                 mac_address = mac_match.group(1) if mac_match else "Unknown"
                 
+                # Try to identify if this is a TP-Link adapter
+                adapter_type = "Unknown"
+                if current_adapter in ['hci0', 'hci1', 'hci2', 'hci3']:
+                    # Check if this adapter corresponds to a TP-Link device
+                    adapter_type = identify_adapter_type(current_adapter)
+                
                 adapters.append({
                     'name': current_adapter,
                     'mac': mac_address,
-                    'status': 'UP' if 'UP' in line else 'DOWN'
+                    'status': 'UP' if 'UP' in line else 'DOWN',
+                    'type': adapter_type
                 })
     
     except subprocess.CalledProcessError as e:
@@ -43,6 +50,32 @@ def get_bluetooth_adapters() -> List[Dict[str, str]]:
         return get_bluetooth_adapters_alternative()
     
     return adapters
+
+def identify_adapter_type(adapter_name: str) -> str:
+    """Try to identify the type of adapter by checking USB devices"""
+    try:
+        # Get USB device information
+        result = subprocess.run(['lsusb'], capture_output=True, text=True, check=True)
+        lines = result.stdout.split('\n')
+        
+        # Look for TP-Link devices
+        tp_link_devices = []
+        for line in lines:
+            if '2357:0604' in line and 'TP-Link' in line:
+                tp_link_devices.append(line.strip())
+        
+        # Map adapter to device (this is a heuristic)
+        if adapter_name == 'hci2' and len(tp_link_devices) >= 1:
+            return "TP-Link BLE Scanner #1"
+        elif adapter_name == 'hci1' and len(tp_link_devices) >= 2:
+            return "TP-Link BLE Scanner #2"
+        elif adapter_name == 'hci0':
+            return "System Bluetooth"
+        else:
+            return "Unknown BLE Adapter"
+            
+    except Exception:
+        return "Unknown BLE Adapter"
 
 def get_bluetooth_adapters_alternative() -> List[Dict[str, str]]:
     """Alternative method to get Bluetooth adapters"""
@@ -121,6 +154,7 @@ def main():
     if adapters:
         for i, adapter in enumerate(adapters, 1):
             print(f"  Adapter {i}: {adapter['name']}")
+            print(f"    Type: {adapter.get('type', 'Unknown')}")
             print(f"    MAC: {adapter['mac']}")
             print(f"    Status: {adapter['status']}")
             if 'description' in adapter:
