@@ -17,7 +17,22 @@ Multi-beacon BLE system for tracking boat presence and managing beacon-to-boat a
 ## Installation
 
 ```bash
-pip install -r requirements_new.txt
+pip install -r requirements.txt
+```
+
+## Quick Start
+
+### Local Development
+```bash
+python3 boat_tracking_system.py --api-port 8000 --web-port 5000
+```
+
+### Public Access (ngrok)
+```bash
+# 1. Get ngrok auth token from https://dashboard.ngrok.com
+# 2. Edit ngrok.yml and add your token
+# 3. Start with public access
+./start_public.sh
 ```
 
 ## Initial Setup
