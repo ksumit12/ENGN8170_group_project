@@ -750,7 +750,7 @@ class BoatTrackingSystem:
         
         <!-- Whiteboard-style priority view -->
         <div class="whiteboard-board">
-            <div class="wb-title">Boat Out Board</div>
+            <div class="wb-title">Boat Out Board - <span id="todayDate">Loading...</span></div>
             <table class="wb-table" id="wbTable">
                 <thead>
                     <tr>
@@ -964,7 +964,7 @@ class BoatTrackingSystem:
             <div id="logContent" style="
                 background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; 
                 padding: 15px; max-height: 500px; overflow-y: auto; font-family: monospace; 
-                font-size: 12px; white-space: pre-wrap;
+                font-size: 12px; white-space: pre-wrap; color: #2c3e50;
             ">
                 Click a button above to load logs or status information.
             </div>
@@ -1084,6 +1084,7 @@ class BoatTrackingSystem:
             const indicator = document.getElementById('updateIndicator');
             indicator.classList.add('show');
             
+            updateTodayDate();
             updateWhiteboard();
             updateBoats();
             updateBeacons();
@@ -1094,6 +1095,21 @@ class BoatTrackingSystem:
             setTimeout(() => {
                 indicator.classList.remove('show');
             }, 500);
+        }
+
+        function updateTodayDate() {
+            const today = new Date();
+            const options = { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            };
+            const todayStr = today.toLocaleDateString('en-AU', options);
+            const todayElement = document.getElementById('todayDate');
+            if (todayElement) {
+                todayElement.textContent = todayStr;
+            }
         }
 
         function updateWhiteboard() {
@@ -1110,7 +1126,23 @@ class BoatTrackingSystem:
                 const rows = boats.map(b => {
                     const boatName = b.name;
                     const status = b.status === 'in_harbor' ? '<span class="wb-status-in">IN SHED</span>' : '<span class="wb-status-out">OUT</span>';
-                    const lastSeen = b.beacon && b.beacon.last_seen ? new Date(b.beacon.last_seen).toLocaleTimeString() : '—';
+                    let lastSeen = '—';
+                    if (b.beacon && b.beacon.last_seen) {
+                        const lastSeenDate = new Date(b.beacon.last_seen);
+                        const now = new Date();
+                        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                        const yesterday = new Date(today);
+                        yesterday.setDate(yesterday.getDate() - 1);
+                        const lastSeenDay = new Date(lastSeenDate.getFullYear(), lastSeenDate.getMonth(), lastSeenDate.getDate());
+                        
+                        if (lastSeenDay.getTime() === today.getTime()) {
+                            lastSeen = `Today ${lastSeenDate.toLocaleTimeString()}`;
+                        } else if (lastSeenDay.getTime() === yesterday.getTime()) {
+                            lastSeen = `Yesterday ${lastSeenDate.toLocaleTimeString()}`;
+                        } else {
+                            lastSeen = lastSeenDate.toLocaleDateString('en-AU') + ' ' + lastSeenDate.toLocaleTimeString();
+                        }
+                    }
                     const signal = b.beacon && b.beacon.last_rssi != null ? `${rssiToPercent(b.beacon.last_rssi)}% (${b.beacon.last_rssi} dBm)` : '—';
                     return `<tr><td>${boatName}</td><td>${status}</td><td>${lastSeen}</td><td>${signal}</td></tr>`;
                 }).join('');
