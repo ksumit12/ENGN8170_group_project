@@ -11,6 +11,15 @@ pkill -f "ngrok" 2>/dev/null || true
 # Wait a moment
 sleep 2
 
+# Check if ngrok.yml exists, if not copy from template
+if [ ! -f "ngrok.yml" ]; then
+    echo "Creating ngrok.yml from template..."
+    cp ngrok.yml.template ngrok.yml
+    echo "Please edit ngrok.yml and add your auth token!"
+    echo "Get your token from: https://dashboard.ngrok.com/get-started/your-authtoken"
+    exit 1
+fi
+
 # Activate virtual environment
 echo "Activating virtual environment..."
 source .venv/bin/activate

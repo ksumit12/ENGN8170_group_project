@@ -1,0 +1,12 @@
+# ngrok configuration for Boat Tracking System
+version: "2"
+authtoken: YOUR_NGROK_AUTH_TOKEN_HERE
+
+tunnels:
+  boat-tracking:
+    proto: http
+    addr: 5000
+    subdomain: boat-tracking-ksumit12  # Reserved domain - NEVER CHANGES!
+    inspect: true
+    # This creates a static URL: https://boat-tracking-ksumit12.ngrok.io
+    # Reserve this domain at: https://dashboard.ngrok.com/cloud-edge/domains
