@@ -33,7 +33,7 @@ chmod +x setup_rpi.sh
 ./start_system.sh
 ```
 
-**Your static URL**: `https://boat-tracking.ngrok.io` (NEVER CHANGES!)
+**Your static URL**: `https://boat-tracking-ksumit12.ngrok.io` (NEVER CHANGES!)
 
 ## Quick Start (Already Setup)
 

@@ -14,7 +14,7 @@ ngrok config add-authtoken YOUR_TOKEN_HERE
 
 # 3. Reserve your static domain (one-time setup)
 # Go to: https://dashboard.ngrok.com/cloud-edge/domains
-# Reserve: boat-tracking.ngrok.io
+# Reserve: boat-tracking-ksumit12.ngrok.io
 
 # 4. Run the complete setup (this does EVERYTHING)
 chmod +x setup_rpi.sh
@@ -25,7 +25,7 @@ chmod +x setup_rpi.sh
 ```
 
 ## That's it! Your static URL will be:
-**https://boat-tracking.ngrok.io**
+**https://boat-tracking-ksumit12.ngrok.io**
 
 This URL **NEVER CHANGES** - you can share it with everyone!
 
