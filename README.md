@@ -20,19 +20,31 @@ Multi-beacon BLE system for tracking boat presence and managing beacon-to-boat a
 pip install -r requirements.txt
 ```
 
-## Quick Start
+## 🚀 ONE COMMAND SETUP (Fresh RPi)
+
+```bash
+# 1. Clone and setup everything
+git clone https://github.com/ksumit12/ENGN8170_group_project.git
+cd ENGN8170_group_project
+chmod +x setup_rpi.sh
+./setup_rpi.sh
+
+# 2. Start the system
+./start_system.sh
+```
+
+**Your static URL**: `https://boat-tracking-ksumit12.ngrok.io` (NEVER CHANGES!)
+
+## Quick Start (Already Setup)
 
 ### Local Development
 ```bash
 python3 boat_tracking_system.py --api-port 8000 --web-port 5000
 ```
 
-### Public Access (ngrok)
+### Public Access
 ```bash
-# 1. Get ngrok auth token from https://dashboard.ngrok.com
-# 2. Edit ngrok.yml and add your token
-# 3. Start with public access
-./start_public.sh
+./start_system.sh
 ```
 
 ## Initial Setup
