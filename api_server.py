@@ -15,10 +15,10 @@ import time
 
 from database_models import DatabaseManager, Boat, Beacon, BoatBeaconAssignment, DetectionState, BoatStatus
 from entry_exit_fsm import EntryExitFSM, FSMState
+from logging_config import get_logger
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Use the system logger
+logger = get_logger()
 
 class APIServer:
     def __init__(self, db_path: str = "boat_tracking.db", 
@@ -78,10 +78,14 @@ class APIServer:
                     # Upsert beacon
                     beacon = self.db.upsert_beacon(mac_address, name, rssi)
                     
+                    # Log beacon detection
+                    logger.info(f"Beacon detected: {name} ({mac_address}) - RSSI: {rssi} dBm from {scanner_id}", "SCANNER")
+                    
                     # Only process through FSM if beacon is assigned to a boat
                     assigned_boat = self.db.get_boat_by_beacon(beacon.id)
                     if not assigned_boat:
                         # Skip FSM/state updates for unassigned beacons; discovery UI uses live scanner feed
+                        logger.debug(f"Unassigned beacon detected: {name} ({mac_address}) - skipping FSM processing", "SCANNER")
                         processed_count += 1
                         continue
 
@@ -89,6 +93,8 @@ class APIServer:
                     
                     if state_change:
                         old_state, new_state = state_change
+                        boat_name = assigned_boat.name if assigned_boat else "Unknown"
+                        logger.info(f"Boat state change: {boat_name} ({mac_address}) - {old_state.value} → {new_state.value} (RSSI: {rssi} dBm)", "SCANNER")
                         state_changes.append({
                             'beacon_id': beacon.id,
                             'mac_address': mac_address,
@@ -96,6 +102,10 @@ class APIServer:
                             'new_state': new_state.value,
                             'timestamp': datetime.now(timezone.utc).isoformat()
                         })
+                    else:
+                        # Log regular detection for assigned beacons
+                        boat_name = assigned_boat.name if assigned_boat else "Unknown"
+                        logger.debug(f"Boat beacon detected: {boat_name} ({mac_address}) - RSSI: {rssi} dBm (no state change)", "SCANNER")
                     
                     processed_count += 1
                 
@@ -336,10 +346,20 @@ class APIServer:
                         else:
                             last_seen_dt = None
 
-                        if last_seen_dt and (datetime.now(timezone.utc) - last_seen_dt).total_seconds() <= window_seconds:
-                            self.db.update_boat_status(boat.id, BoatStatus.IN_HARBOR)
-                        else:
-                            self.db.update_boat_status(boat.id, BoatStatus.OUT)
+                        # Check if beacon was seen recently
+                        is_recently_seen = last_seen_dt and (datetime.now(timezone.utc) - last_seen_dt).total_seconds() <= window_seconds
+                        
+                        # Determine new status
+                        new_status = BoatStatus.IN_HARBOR if is_recently_seen else BoatStatus.OUT
+                        
+                        # Only update and log if status changed
+                        if boat.status != new_status:
+                            self.db.update_boat_status(boat.id, new_status)
+                            
+                            if new_status == BoatStatus.IN_HARBOR:
+                                logger.info(f"Boat entered harbor: {boat.name} (beacon: {beacon.mac_address})", "STATUS")
+                            else:
+                                logger.info(f"Boat left harbor: {boat.name} (beacon: {beacon.mac_address}) - last seen: {last_seen_dt}", "STATUS")
                 
                 time.sleep(5)  # Update every 5 seconds
                 

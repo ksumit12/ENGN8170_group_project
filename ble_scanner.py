@@ -17,10 +17,10 @@ import logging
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from bleak import BleakScanner
+from logging_config import get_logger
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Use the system logger
+logger = get_logger()
 
 # ---- Beacon protocol constants ----
 APPLE_CID = 0x004C  # iBeacon lives under Apple Manufacturer Specific Data
@@ -170,10 +170,10 @@ class BLEScanner:
         if rssi is None:
             rssi = getattr(device, 'rssi', None)
         if rssi is None:
-            logger.debug("Skipping advertisement with no RSSI for %s", getattr(device, 'address', 'unknown'))
+            logger.debug(f"Skipping advertisement with no RSSI for {getattr(device, 'address', 'unknown')}", "SCANNER")
             return
         if rssi < self.config.rssi_threshold:
-            logger.debug("Ignoring %s due to RSSI %sdBm < threshold %sdBm", getattr(device, 'address', 'unknown'), rssi, self.config.rssi_threshold)
+            logger.debug(f"Ignoring {getattr(device, 'address', 'unknown')} due to RSSI {rssi}dBm < threshold {self.config.rssi_threshold}dBm", "SCANNER")
             return
 
         mac = device.address
@@ -199,7 +199,7 @@ class BLEScanner:
                         ibeacon_tx_power=parsed["tx_power"],
                     )
         except Exception as e:
-            logger.debug("iBeacon parse error for %s: %s", mac, e)
+            logger.debug(f"iBeacon parse error for {mac}: {e}", "SCANNER")
             obs = None
 
         # Else try Eddystone UID/URL
@@ -207,7 +207,7 @@ class BLEScanner:
             try:
                 edd = parse_eddystone(advertisement_data)
             except Exception as e:
-                logger.debug("Eddystone parse error for %s: %s", mac, e)
+                logger.debug(f"Eddystone parse error for {mac}: {e}", "SCANNER")
                 edd = None
             if edd:
                 if edd["protocol"] == "eddystone-uid":
@@ -230,13 +230,17 @@ class BLEScanner:
 
         # If neither matched, ignore (non-beacon or unsupported Eddystone frame)
         if obs is None:
-            logger.debug("Unsupported frame for %s - not iBeacon/Eddystone UID/URL", mac)
+            logger.debug(f"Unsupported frame for {mac} - not iBeacon/Eddystone UID/URL", "SCANNER")
             return
 
         with self.lock:
             # Latest per MAC (handy for status)
             self.detected_beacons[mac] = obs
             self.observation_queue.append(obs)
+            
+            # Log beacon detection
+            logger.info(f"BLE beacon detected: {name} ({mac}) - {obs.protocol} - RSSI: {rssi} dBm", "SCANNER")
+            
             if len(self.observation_queue) >= self.config.batch_size:
                 self._process_observations()
 
@@ -274,7 +278,7 @@ class BLEScanner:
         }
 
         if self.config.dry_run:
-            logger.info(f"[DRY-RUN] Would POST {len(observations)} observation(s):\n{json.dumps(payload, indent=2)}")
+            logger.info(f"[DRY-RUN] Would POST {len(observations)} observation(s):\n{json.dumps(payload, indent=2)}", "SCANNER")
             return
 
         # POST to server
@@ -289,25 +293,25 @@ class BLEScanner:
                 timeout=5
             )
             response.raise_for_status()
-            logger.debug(f"Posted {len(observations)} observations to server")
+            logger.debug(f"Posted {len(observations)} observations to server", "SCANNER")
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to post observations to server: {e}")
+            logger.error(f"Failed to post observations to server: {e}", "SCANNER")
             # Re-queue a small slice to avoid unbounded growth
             with self.lock:
                 self.observation_queue = observations[:5] + self.observation_queue
 
     async def scan_continuously(self):
         """Continuously scan for BLE devices (beacon-filtered)."""
-        logger.info(f"Starting BLE scanner {self.config.scanner_id}")
-        logger.info(f"Server URL: {self.config.server_url}")
-        logger.info(f"RSSI threshold: {self.config.rssi_threshold} dBm")
+        logger.info(f"Starting BLE scanner {self.config.scanner_id}", "SCANNER")
+        logger.info(f"Server URL: {self.config.server_url}", "SCANNER")
+        logger.info(f"RSSI threshold: {self.config.rssi_threshold} dBm", "SCANNER")
 
         # Active scanning improves discovery of iBeacon/Eddystone on some platforms
         scanner = BleakScanner(self.detection_callback, scanning_mode="active")
 
         try:
             await scanner.start()
-            logger.info("BLE scanner started successfully")
+            logger.info("BLE scanner started successfully", "SCANNER")
             self.running = True
 
             while self.running:
@@ -322,11 +326,11 @@ class BLEScanner:
                     if self.observation_queue:
                         self._process_observations()
         except Exception as e:
-            logger.error(f"BLE scan error: {e}")
+            logger.error(f"BLE scan error: {e}", "SCANNER")
         finally:
             self.running = False
             await scanner.stop()
-            logger.info("BLE scanner stopped")
+            logger.info("BLE scanner stopped", "SCANNER")
 
     def start_scanning(self):
         """Start BLE scanning in a separate thread."""
@@ -391,13 +395,13 @@ def main():
 
     try:
         scanner.start_scanning()
-        logger.info("Scanner started. Press Ctrl+C to stop.")
+        logger.info("Scanner started. Press Ctrl+C to stop.", "SCANNER")
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        logger.info("Stopping scanner...")
+        logger.info("Stopping scanner...", "SCANNER")
         scanner.stop_scanning()
-        logger.info("Scanner stopped")
+        logger.info("Scanner stopped", "SCANNER")
 
 if __name__ == "__main__":
     main()

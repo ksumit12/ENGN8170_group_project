@@ -11,6 +11,10 @@ from dataclasses import dataclass
 from enum import Enum
 
 from database_models import DetectionState, DatabaseManager
+from logging_config import get_logger
+
+# Use the system logger
+logger = get_logger()
 
 class FSMState(Enum):
     IDLE = "idle"
@@ -122,6 +126,12 @@ class EntryExitFSM:
             
             # Log detection
             self.db.log_detection(scanner_id, beacon_id, rssi, DetectionState(new_state.value))
+            
+            # Log state change with context
+            if new_state == FSMState.IDLE and old_state != FSMState.IDLE:
+                logger.info(f"Beacon timeout: {beacon_id} - {old_state.value} → {new_state.value} (no signal for 5+ minutes)", "FSM")
+            else:
+                logger.info(f"Beacon state change: {beacon_id} - {old_state.value} → {new_state.value} (RSSI: {rssi} dBm)", "FSM")
             
             return (old_state, new_state)
         
