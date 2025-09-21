@@ -57,16 +57,16 @@ grp_project/
 ## Important Notes
 
 ### What Works on Vercel
-- ✅ Web dashboard interface
-- ✅ API endpoints for boats, beacons, presence
-- ✅ Database operations (SQLite)
-- ✅ Log viewing
-- ✅ Real-time updates via JavaScript
+- Web dashboard interface
+- API endpoints for boats, beacons, presence
+- Database operations (SQLite)
+- Log viewing
+- Real-time updates via JavaScript
 
 ### What Doesn't Work on Vercel
-- ❌ BLE scanning (requires physical hardware)
-- ❌ Long-running background processes
-- ❌ Real-time beacon detection
+- BLE scanning (requires physical hardware)
+- Long-running background processes
+- Real-time beacon detection
 
 ### Database Considerations
 - SQLite database is stored in Vercel's serverless environment

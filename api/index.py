@@ -237,9 +237,6 @@ def get_dashboard_html():
             </div>
         </div>
         
-        <div class="demo-notice">
-            🚀 DEMO MODE: This is a Vercel deployment with mock data. BLE scanning is not available in this environment.
-        </div>
         
         <!-- Closing Time Display -->
         <div style="margin:10px 0; padding:8px 12px; background:#f8f9fa; border-left:4px solid #007bff; border-radius:4px; color:#495057;">
@@ -476,44 +473,45 @@ def get_dashboard_html():
         }
 
         function updateWhiteboard() {
-            Promise.all([
-                fetch('/api/boats').then(r => r.json()),
-                fetch('/api/presence').then(r => r.json())
-            ]).then(([boats, presence]) => {
-                const tbody = document.querySelector('#wbTable tbody');
-                if (!Array.isArray(boats) || boats.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:14px; font-weight:600; color:#666;">No boats registered</td></tr>';
-                    return;
-                }
-
-                const rows = boats.map(b => {
-                    const boatName = b.name;
-                    const status = b.status === 'in_harbor' ? '<span class="wb-status-in">IN SHED</span>' : '<span class="wb-status-out">OUT</span>';
-                    let lastSeen = '—';
-                    if (b.beacon && b.beacon.last_seen) {
-                        const lastSeenDate = new Date(b.beacon.last_seen);
-                        const now = new Date();
-                        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                        const yesterday = new Date(today);
-                        yesterday.setDate(yesterday.getDate() - 1);
-                        const lastSeenDay = new Date(lastSeenDate.getFullYear(), lastSeenDate.getMonth(), lastSeenDate.getDate());
-                        
-                        if (lastSeenDay.getTime() === today.getTime()) {
-                            lastSeen = `Today ${lastSeenDate.toLocaleTimeString()}`;
-                        } else if (lastSeenDay.getTime() === yesterday.getTime()) {
-                            lastSeen = `Yesterday ${lastSeenDate.toLocaleTimeString()}`;
-                        } else {
-                            lastSeen = lastSeenDate.toLocaleDateString('en-AU') + ' ' + lastSeenDate.toLocaleTimeString();
-                        }
+            fetch('/api/boats')
+                .then(response => response.json())
+                .then(boats => {
+                    const tbody = document.querySelector('#wbTable tbody');
+                    if (!Array.isArray(boats) || boats.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:14px; font-weight:600; color:#666;">No boats registered</td></tr>';
+                        return;
                     }
-                    const signal = b.beacon && b.beacon.last_rssi != null ? `${rssiToPercent(b.beacon.last_rssi)}% (${b.beacon.last_rssi} dBm)` : '—';
-                    return `<tr><td>${boatName}</td><td>${status}</td><td>${lastSeen}</td><td>${signal}</td></tr>`;
-                }).join('');
-                tbody.innerHTML = rows;
-            }).catch(() => {
-                const tbody = document.querySelector('#wbTable tbody');
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:14px; font-weight:600; color:#666;">Error loading whiteboard</td></tr>';
-            });
+
+                    const rows = boats.map(b => {
+                        const boatName = b.name;
+                        const status = b.status === 'in_harbor' ? '<span class="wb-status-in">IN SHED</span>' : '<span class="wb-status-out">OUT</span>';
+                        let lastSeen = '—';
+                        if (b.beacon && b.beacon.last_seen) {
+                            const lastSeenDate = new Date(b.beacon.last_seen);
+                            const now = new Date();
+                            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                            const yesterday = new Date(today);
+                            yesterday.setDate(yesterday.getDate() - 1);
+                            const lastSeenDay = new Date(lastSeenDate.getFullYear(), lastSeenDate.getMonth(), lastSeenDate.getDate());
+                            
+                            if (lastSeenDay.getTime() === today.getTime()) {
+                                lastSeen = `Today ${lastSeenDate.toLocaleTimeString()}`;
+                            } else if (lastSeenDay.getTime() === yesterday.getTime()) {
+                                lastSeen = `Yesterday ${lastSeenDate.toLocaleTimeString()}`;
+                            } else {
+                                lastSeen = lastSeenDate.toLocaleDateString('en-AU') + ' ' + lastSeenDate.toLocaleTimeString();
+                            }
+                        }
+                        const signal = b.beacon && b.beacon.last_rssi != null ? `${rssiToPercent(b.beacon.last_rssi)}% (${b.beacon.last_rssi} dBm)` : '—';
+                        return `<tr><td>${boatName}</td><td>${status}</td><td>${lastSeen}</td><td>${signal}</td></tr>`;
+                    }).join('');
+                    tbody.innerHTML = rows;
+                })
+                .catch(error => {
+                    console.error('Error loading whiteboard:', error);
+                    const tbody = document.querySelector('#wbTable tbody');
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:14px; font-weight:600; color:#666;">Error loading whiteboard</td></tr>';
+                });
         }
 
         // Convert RSSI (approx -30..-100 dBm) to 0..100% scale
@@ -556,7 +554,7 @@ def get_dashboard_html():
                 .then(response => response.json())
                 .then(data => {
                     if (data.logs && data.logs.length > 0) {
-                        logContent.textContent = data.logs.join('\\n');
+                        logContent.textContent = data.logs.join('\n');
                     } else {
                         logContent.textContent = 'No logs available.';
                     }
