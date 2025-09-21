@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Vercel-compatible Flask app for Boat Tracking System
-This is a simplified version that works with Vercel's serverless environment
+Standalone version that works without external dependencies
 """
 
 import os
@@ -9,26 +9,65 @@ import json
 from flask import Flask, jsonify, request, render_template_string
 from flask_cors import CORS
 from datetime import datetime, timezone
-import sqlite3
-from pathlib import Path
-
-# Import our modules
-import sys
-sys.path.append('..')
-
-from database_models import DatabaseManager, BoatStatus
-from logging_config import get_logger
 
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)
 
-# Use the system logger
-logger = get_logger()
+# Mock data for demonstration
+MOCK_BOATS = [
+    {
+        'id': 1,
+        'name': 'Red Shed Racer',
+        'class_type': 'Single Scull',
+        'status': 'in_harbor',
+        'beacon': {
+            'mac_address': 'AA:BB:CC:DD:EE:FF',
+            'last_seen': datetime.now().isoformat(),
+            'last_rssi': -45
+        }
+    },
+    {
+        'id': 2,
+        'name': 'Black Mountain',
+        'class_type': 'Double Scull',
+        'status': 'out',
+        'beacon': {
+            'mac_address': '11:22:33:44:55:66',
+            'last_seen': datetime.now().isoformat(),
+            'last_rssi': -78
+        }
+    }
+]
 
-# Initialize database
-db_path = os.path.join(os.path.dirname(__file__), '..', 'boat_tracking.db')
-db = DatabaseManager(db_path)
+MOCK_BEACONS = [
+    {
+        'id': 1,
+        'mac_address': 'AA:BB:CC:DD:EE:FF',
+        'name': 'Beacon_1',
+        'status': 'assigned',
+        'last_seen': datetime.now().isoformat(),
+        'last_rssi': -45,
+        'assigned_boat': {
+            'id': 1,
+            'name': 'Red Shed Racer',
+            'class_type': 'Single Scull'
+        }
+    },
+    {
+        'id': 2,
+        'mac_address': '11:22:33:44:55:66',
+        'name': 'Beacon_2',
+        'status': 'assigned',
+        'last_seen': datetime.now().isoformat(),
+        'last_rssi': -78,
+        'assigned_boat': {
+            'id': 2,
+            'name': 'Black Mountain',
+            'class_type': 'Double Scull'
+        }
+    }
+]
 
 @app.route('/')
 def index():
@@ -39,59 +78,23 @@ def index():
 def api_boats():
     """Get all boats."""
     try:
-        boats = db.get_all_boats()
-        result = []
-        for boat in boats:
-            beacon = db.get_beacon_by_boat(boat.id)
-            boat_data = {
-                'id': boat.id,
-                'name': boat.name,
-                'class_type': boat.class_type,
-                'status': boat.status.value,
-                'beacon': {
-                    'mac_address': beacon.mac_address,
-                    'last_seen': beacon.last_seen.isoformat() if beacon.last_seen else None,
-                    'last_rssi': beacon.last_rssi
-                } if beacon else None
-            }
-            result.append(boat_data)
-        return jsonify(result)
+        return jsonify(MOCK_BOATS)
     except Exception as e:
-        logger.error(f"Error getting boats: {e}", "API")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/beacons')
 def api_beacons():
     """Get all beacons."""
     try:
-        beacons = db.get_all_beacons()
-        result = []
-        for beacon in beacons:
-            assigned_boat = db.get_boat_by_beacon(beacon.id)
-            beacon_data = {
-                'id': beacon.id,
-                'mac_address': beacon.mac_address,
-                'name': beacon.name,
-                'status': beacon.status.value,
-                'last_seen': beacon.last_seen.isoformat() if beacon.last_seen else None,
-                'last_rssi': beacon.last_rssi,
-                'assigned_boat': {
-                    'id': assigned_boat.id,
-                    'name': assigned_boat.name,
-                    'class_type': assigned_boat.class_type
-                } if assigned_boat else None
-            }
-            result.append(beacon_data)
-        return jsonify(result)
+        return jsonify(MOCK_BEACONS)
     except Exception as e:
-        logger.error(f"Error getting beacons: {e}", "API")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/presence')
 def api_presence():
     """Get shed presence information."""
     try:
-        boats_in_harbor = db.get_boats_in_harbor()
+        boats_in_harbor = [boat for boat in MOCK_BOATS if boat['status'] == 'in_harbor']
         total_in_harbor = len(boats_in_harbor)
         
         result = {
@@ -99,30 +102,27 @@ def api_presence():
             'boats_in_harbor': []
         }
         
-        for boat, beacon in boats_in_harbor:
+        for boat in boats_in_harbor:
             result['boats_in_harbor'].append({
-                'boat_name': boat.name,
-                'boat_class': boat.class_type,
-                'beacon_mac': beacon.mac_address,
-                'last_rssi': beacon.last_rssi
+                'boat_name': boat['name'],
+                'boat_class': boat['class_type'],
+                'beacon_mac': boat['beacon']['mac_address'],
+                'last_rssi': boat['beacon']['last_rssi']
             })
         
         return jsonify(result)
     except Exception as e:
-        logger.error(f"Error getting presence: {e}", "API")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/overdue')
 def api_overdue():
     """Get overdue boats information."""
     try:
-        # Simple implementation - you can enhance this
         return jsonify({
             'overdue_boat_ids': [],
             'closing_time': '20:00'
         })
     except Exception as e:
-        logger.error(f"Error getting overdue info: {e}", "API")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/settings/closing-time')
@@ -131,7 +131,6 @@ def api_closing_time():
     try:
         return jsonify({'closing_time': '20:00'})
     except Exception as e:
-        logger.error(f"Error getting closing time: {e}", "API")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/logs')
@@ -141,17 +140,16 @@ def api_logs():
         log_type = request.args.get('type', 'main')
         count = int(request.args.get('count', 50))
         
-        # Get logs from the logger
-        if log_type == 'main':
-            logs = logger.get_recent_logs(count)
-        elif log_type == 'errors':
-            logs = logger.get_recent_errors(count)
-        else:
-            logs = logger.get_recent_logs(count)
+        # Mock logs
+        logs = [
+            f"[{datetime.now().strftime('%H:%M:%S')}] System started",
+            f"[{datetime.now().strftime('%H:%M:%S')}] Database connected",
+            f"[{datetime.now().strftime('%H:%M:%S')}] Web server running on Vercel",
+            f"[{datetime.now().strftime('%H:%M:%S')}] Mock data loaded successfully"
+        ]
         
-        return jsonify({'logs': logs})
+        return jsonify({'logs': logs[:count]})
     except Exception as e:
-        logger.error(f"Error getting logs: {e}", "API")
         return jsonify({'error': str(e)}), 500
 
 def get_dashboard_html():
@@ -224,6 +222,7 @@ def get_dashboard_html():
         .wb-status-in { color: #1e7e34; }
         .wb-status-out { color: #b02a37; }
         .subnote { font-weight: 500; color: #666; font-size: .85rem; margin-top: 8px; text-align: center; }
+        .demo-notice { background: #fff3cd; color: #856404; padding: 10px; border-radius: 8px; margin-bottom: 20px; text-align: center; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -236,6 +235,10 @@ def get_dashboard_html():
             <div style="display:flex; gap:8px; align-items:center;">
                 <button class="primary-btn" onclick="openLogViewer()" style="background:#6c757d;">Logs</button>
             </div>
+        </div>
+        
+        <div class="demo-notice">
+            🚀 DEMO MODE: This is a Vercel deployment with mock data. BLE scanning is not available in this environment.
         </div>
         
         <!-- Closing Time Display -->
