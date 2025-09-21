@@ -1,0 +1,33 @@
+# Ignore development files
+*.pyc
+__pycache__/
+*.log
+logs/
+*.db
+*.sqlite
+*.sqlite3
+
+# Ignore BLE scanner files (not needed for web deployment)
+ble_scanner.py
+ble_beacon_detector.py
+beacon_detector.py
+entry_exit_manager.py
+health_manager.py
+quick_start.py
+run.py
+start.sh
+test_beacon_simple.py
+simple_boat_tracker*.py
+fixed_boat_tracker.py
+boat_tracker.py
+
+# Ignore testing files
+tools/
+tests/
+
+# Ignore documentation
+*.md
+!README.md
+
+# Ignore config files
+settings.json
