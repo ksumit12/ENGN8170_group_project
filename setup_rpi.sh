@@ -4,7 +4,7 @@
 
 set -e  # Exit on any error
 
-echo "🚢 Boat Tracking System - Complete RPi Setup"
+echo "Boat Tracking System - Complete RPi Setup"
 echo "=============================================="
 
 # Colors for output
@@ -170,7 +170,7 @@ cat > start_system.sh <<'EOF'
 #!/bin/bash
 # Start Boat Tracking System with ngrok
 
-echo "🚢 Starting Boat Tracking System..."
+echo "Starting Boat Tracking System..."
 
 # Start the main service
 sudo systemctl start boat-tracking.service
@@ -181,10 +181,10 @@ sleep 5
 # Start ngrok tunnel
 sudo systemctl start boat-tracking-ngrok.service
 
-echo "✅ System started!"
-echo "🌐 Check your public URL at: https://dashboard.ngrok.com/tunnels"
-echo "📱 Local access: http://localhost:5000"
-echo "🔧 ngrok dashboard: http://localhost:4040"
+echo "System started!"
+echo "Check your public URL at: https://dashboard.ngrok.com/tunnels"
+echo "Local access: http://localhost:5000"
+echo "ngrok dashboard: http://localhost:4040"
 echo ""
 echo "To stop: sudo systemctl stop boat-tracking-ngrok.service boat-tracking.service"
 EOF
@@ -196,7 +196,7 @@ cat > check_status.sh <<'EOF'
 #!/bin/bash
 # Check system status
 
-echo "🚢 Boat Tracking System Status"
+echo "Boat Tracking System Status"
 echo "=============================="
 
 echo "Main Service:"
@@ -224,20 +224,20 @@ chmod +x start_public.sh
 chmod +x start_system.sh
 chmod +x check_status.sh
 
-print_success "Setup complete! 🎉"
+print_success "Setup complete! "
 echo ""
 echo "=============================================="
-echo "🚀 READY TO USE!"
+echo "READY TO USE!"
 echo "=============================================="
 echo ""
 echo "To start the system:"
-echo "  ./start_system.sh"
+echo " ./start_system.sh"
 echo ""
 echo "To check status:"
-echo "  ./check_status.sh"
+echo " ./check_status.sh"
 echo ""
 echo "To stop the system:"
-echo "  sudo systemctl stop boat-tracking-ngrok.service boat-tracking.service"
+echo " sudo systemctl stop boat-tracking-ngrok.service boat-tracking.service"
 echo ""
 echo "Your system will auto-start on boot!"
 echo "Check your public URL at: https://dashboard.ngrok.com/tunnels"

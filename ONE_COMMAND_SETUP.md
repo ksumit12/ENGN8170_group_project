@@ -1,4 +1,4 @@
-# 🚀 ONE COMMAND SETUP
+#  ONE COMMAND SETUP
 
 ## For Fresh Raspberry Pi:
 
@@ -14,7 +14,7 @@ ngrok config add-authtoken YOUR_TOKEN_HERE
 
 # 3. Reserve your static domain (one-time setup)
 # Go to: https://dashboard.ngrok.com/cloud-edge/domains
-# Reserve: boat-tracking-ksumit12.ngrok.io
+# Reserve: boat-tracking.ngrok.io
 
 # 4. Run the complete setup (this does EVERYTHING)
 chmod +x setup_rpi.sh
@@ -25,19 +25,19 @@ chmod +x setup_rpi.sh
 ```
 
 ## That's it! Your static URL will be:
-**https://boat-tracking-ksumit12.ngrok.io**
+**https://boat-tracking.ngrok.io**
 
 This URL **NEVER CHANGES** - you can share it with everyone!
 
 ## What the setup script does:
-- ✅ Updates system packages
-- ✅ Installs Python, ngrok, Bluetooth tools
-- ✅ Creates virtual environment
-- ✅ Installs all dependencies
-- ✅ Configures Bluetooth adapters
-- ✅ Creates systemd services (auto-start on boot)
-- ✅ Sets up static ngrok domain
-- ✅ Creates management scripts
+-  Updates system packages
+-  Installs Python, ngrok, Bluetooth tools
+-  Creates virtual environment
+-  Installs all dependencies
+-  Configures Bluetooth adapters
+-  Creates systemd services (auto-start on boot)
+-  Sets up static ngrok domain
+-  Creates management scripts
 
 ## After setup, you can:
 - **Start**: `./start_system.sh`
