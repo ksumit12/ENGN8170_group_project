@@ -504,7 +504,8 @@ class BoatTrackingSystem:
                         server_url=server_base_url,
                         api_key=scanner_config.get('api_key', 'default-key'),
                         rssi_threshold=scanner_config.get('rssi_threshold', -80),
-                        scan_interval=scanner_config.get('scan_interval', 1.0)
+                        scan_interval=scanner_config.get('scan_interval', 1.0),
+                        adapter=scanner_config.get('adapter', None)
                     )
                     
                     scanner = BLEScanner(config)
@@ -1633,14 +1634,16 @@ def get_default_config():
             {
                 'id': 'gate-outer',
                 'api_key': 'default-key',
-                'rssi_threshold': -70,
-                'scan_interval': 1.0
+                'rssi_threshold': -60,  # Left scanner - detects when beacon is within ~1m
+                'scan_interval': 1.0,
+                'adapter': 'hci0'  # TP-Link BLE Scanner #1 (Left side)
             },
             {
                 'id': 'gate-inner',
                 'api_key': 'default-key',
-                'rssi_threshold': -70,
-                'scan_interval': 1.0
+                'rssi_threshold': -55,  # Right scanner - detects when beacon is within ~0.5m
+                'scan_interval': 1.0,
+                'adapter': 'hci1'  # TP-Link BLE Scanner #2 (Right side)
             }
         ]
     }

@@ -30,8 +30,9 @@ class ScannerRangeTester:
         if rssi == 0:
             return -1.0
         
-        # Typical beacon TX power is around -59 dBm
-        tx_power = -59
+        # Calibrated for your beacon - adjust tx_power based on actual beacon specs
+        # If beacon is right next to scanner and shows -58 dBm, then tx_power should be around -58
+        tx_power = -58  # Calibrated for your beacon
         n = 2.0  # Path loss exponent (free space = 2)
         
         ratio = (tx_power - rssi) / (10 * n)

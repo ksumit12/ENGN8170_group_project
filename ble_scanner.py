@@ -81,6 +81,7 @@ class ScannerConfig:
     batch_size: int = 10
     dry_run: bool = False  # If True, print payload instead of POST
     active_window_seconds: int = 8  # Consider detections "active" within this many seconds
+    adapter: str = None  # BLE adapter to use (e.g., 'hci0', 'hci1', 'hci2')
 
 # ---------- Parsing helpers ----------
 def _fmt_uuid(b: bytes) -> str:
@@ -307,7 +308,13 @@ class BLEScanner:
         logger.info(f"RSSI threshold: {self.config.rssi_threshold} dBm", "SCANNER")
 
         # Active scanning improves discovery of iBeacon/Eddystone on some platforms
-        scanner = BleakScanner(self.detection_callback, scanning_mode="active")
+        # Use specified adapter if provided
+        scanner_kwargs = {"scanning_mode": "active"}
+        if self.config.adapter:
+            scanner_kwargs["adapter"] = self.config.adapter
+            logger.info(f"Using BLE adapter: {self.config.adapter}", "SCANNER")
+        
+        scanner = BleakScanner(self.detection_callback, **scanner_kwargs)
 
         try:
             await scanner.start()
