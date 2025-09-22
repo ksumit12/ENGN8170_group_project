@@ -548,15 +548,30 @@ class BoatTrackingSystem:
             client_api_host = 'localhost' if api_host in ('0.0.0.0', '::', '0:0:0:0:0:0:0:0') else api_host
             server_base_url = f"http://{client_api_host}:{self.config['api_port']}"
 
+            # Detect available BLE adapters (hci*) so we can skip missing ones gracefully
+            import os, glob
+            present_adapters = {os.path.basename(p) for p in glob.glob('/sys/class/bluetooth/hci*')}
+            # Fallback: if sysfs missing, try hciconfig output
+            if not present_adapters:
+                try:
+                    out = subprocess.check_output(['hciconfig'], text=True)
+                    present_adapters = {line.split(':')[0] for line in out.splitlines() if line.startswith('hci')}
+                except Exception:
+                    present_adapters = set()
+
             for scanner_config in self.config['scanners']:
                 try:
+                    adapter = scanner_config.get('adapter', None)
+                    if adapter and present_adapters and adapter not in present_adapters:
+                        logger.warning(f"Skipping scanner {scanner_config['id']} - adapter {adapter} not found (present: {sorted(present_adapters)})", "SCANNER")
+                        continue
                     config = ScannerConfig(
                         scanner_id=scanner_config['id'],
                         server_url=server_base_url,
                         api_key=scanner_config.get('api_key', 'default-key'),
                         rssi_threshold=scanner_config.get('rssi_threshold', -80),
                         scan_interval=scanner_config.get('scan_interval', 1.0),
-                        adapter=scanner_config.get('adapter', None)
+                        adapter=adapter
                     )
                     
                     scanner = BLEScanner(config)
