@@ -84,17 +84,27 @@ class DatabaseManager:
         # Always use a stable absolute path under project/data to prevent accidental
         # creation of a new empty database when CWD changes.
         import os
-        base_dir = os.path.dirname(os.path.abspath(__file__))
+        # Resolve project root as parent of the app/ package directory so DB path
+        # remains stable even if this module moves.
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(app_dir)
         if not os.path.isabs(db_path):
-            data_dir = os.path.join(base_dir, 'data')
+            # Preferred location: <project_root>/data/<db>
+            data_dir = os.path.join(project_root, 'data')
             os.makedirs(data_dir, exist_ok=True)
-            candidate = os.path.join(data_dir, db_path)
-            # Backward compatibility: if legacy DB exists in project root, prefer it
-            legacy = os.path.join(base_dir, db_path)
-            if os.path.exists(legacy) and not os.path.exists(candidate):
-                db_path = legacy
+            preferred = os.path.join(data_dir, db_path)
+            # Backward-compat candidates (existing paths take precedence)
+            legacy_root = os.path.join(project_root, db_path)
+            legacy_app_data = os.path.join(app_dir, 'data', db_path)
+            legacy_app_root = os.path.join(app_dir, db_path)
+            if os.path.exists(legacy_root):
+                db_path = legacy_root
+            elif os.path.exists(legacy_app_data):
+                db_path = legacy_app_data
+            elif os.path.exists(legacy_app_root):
+                db_path = legacy_app_root
             else:
-                db_path = candidate
+                db_path = preferred
         self.db_path = db_path
         self._ensure_backup_dir()
         self.init_database()

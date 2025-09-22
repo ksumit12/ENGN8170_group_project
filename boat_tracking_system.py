@@ -1991,7 +1991,8 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
 def get_default_config():
     """Get default configuration."""
     return {
-        'database_path': 'boat_tracking.db',
+        # Explicit path under project data/ so runs are stable regardless of CWD
+        'database_path': 'data/boat_tracking.db',
         'api_host': '0.0.0.0',
         'api_port': 8000,
         'web_host': '0.0.0.0',
@@ -2027,6 +2028,20 @@ def main():
         
         args = parser.parse_args()
         
+        # Helper: choose an available port to reduce 'address in use' errors
+        import socket
+        def choose_port(preferred: int) -> int:
+            port = preferred
+            for _ in range(10):
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    try:
+                        s.bind(("127.0.0.1", port))
+                        return port
+                    except OSError:
+                        port += 1
+            return preferred
+
         # Load configuration
         config = get_default_config()
         if args.config:
@@ -2034,8 +2049,9 @@ def main():
             pass
         
         # Override with command line args
-        config['api_port'] = args.api_port
-        config['web_port'] = args.web_port
+        config['api_port'] = choose_port(args.api_port)
+        config['web_port'] = choose_port(args.web_port)
+        # Accept either bare filename or explicit path; resolver will map to data/
         config['database_path'] = args.db_path
         
         logger.info(f"Starting Boat Tracking System with config: {config}", "MAIN")
