@@ -24,7 +24,7 @@ from flask_cors import CORS
 from app.database_models import DatabaseManager, BoatStatus
 from ble_scanner import BLEScanner, ScannerConfig
 from api_server import APIServer
-import admin_service
+from app import admin_service
 from app.logging_config import get_logger, setup_logging
 
 # Setup comprehensive logging
