@@ -45,7 +45,7 @@ class BoatTrackingSystem:
             CORS(self.web_app)
             self.setup_web_routes()
             # simple settings persistence (file-based to avoid DB migration)
-            self.settings_file = 'settings.json'
+            self.settings_file = 'system/json/settings.json'
             
             # Initialize status monitoring
             self.health_check_interval = 30  # seconds
@@ -291,7 +291,7 @@ class BoatTrackingSystem:
         @self.web_app.route('/api/overdue')
         def api_overdue():
             """Return boats that are OUT after closing time (default 20:00 Australia/Sydney)."""
-            # load closing time from settings.json
+            # load closing time from system/json/settings.json
             import json, os
             closing_str = '20:00'
             if os.path.exists(self.settings_file):

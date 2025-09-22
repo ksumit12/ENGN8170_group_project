@@ -136,20 +136,28 @@ grp_project/
 ├── data/                      # Database and logs directory
 │   ├── boat_tracking.db      # SQLite database
 │   └── logs/                 # System logs
-├── tools/                     # Utility tools and scripts
+├── scripts/                   # Operational scripts (start/stop/status/setup)
+│   ├── start_everything.sh    # Start API, dashboard, and ngrok
+│   ├── stop_everything.sh     # Stop processes
+│   ├── check_status.sh        # Health/status snapshot
+│   ├── start_public.sh        # Start with public tunnel
+│   ├── setup_rpi.sh           # One-command setup on fresh RPi
+│   └── reserve_domain.sh      # Helper to reserve ngrok domain
+├── system/
+│   └── json/                  # Runtime JSON configuration
+│       ├── scanner_config.json
+│       ├── scanner_config.example.json
+│       └── settings.json
+├── tools/                     # Developer utilities
 │   ├── ble_testing/          # BLE scanner testing tools
 │   │   ├── identify_ble_dongles.py
 │   │   ├── scanner_range_test.py
 │   │   ├── ble_scanner_tester.py
 │   │   └── BLE_TESTING_GUIDE.md
-│   ├── network/              # Network access tools
-│   │   ├── get_ip.py
-│   │   ├── start_network.sh
-│   │   └── configure_firewall.sh
-│   ├── scripts/              # Utility scripts
-│   │   ├── kill_all_servers.sh
-│   │   └── kill_boat_servers.sh
-│   └── logs/                 # Log analysis tools (future)
+│   └── network/              # Network helpers
+│       ├── get_ip.py
+│       ├── start_network.sh
+│       └── configure_firewall.sh
 └── README.md                  # This file
 ```
 
@@ -227,7 +235,7 @@ python3 boat_tracking_system.py --api-port 8000 --web-port 5000
 ```
 - Start hardware daemon (same host):
 ```bash
-python3 scanner_service.py --config scanner_config.json
+python3 scanner_service.py --config system/json/scanner_config.json
 ```
 
 ### Logs

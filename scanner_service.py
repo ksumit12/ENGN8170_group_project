@@ -86,7 +86,7 @@ essential_example_config = {
 
 def main():
     parser = argparse.ArgumentParser(description="Scanner Service (hardware-only)")
-    parser.add_argument('--config', default='scanner_config.json', help='Scanner config JSON (supports gates[])')
+    parser.add_argument('--config', default='system/json/scanner_config.json', help='Scanner config JSON (supports gates[])')
     args = parser.parse_args()
 
     config = load_config(args.config)
