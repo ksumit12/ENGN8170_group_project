@@ -2024,7 +2024,7 @@ def main():
         parser.add_argument("--config", help="Configuration file path")
         parser.add_argument("--api-port", type=int, default=8000, help="API server port")
         parser.add_argument("--web-port", type=int, default=5000, help="Web dashboard port")
-        parser.add_argument("--db-path", default="boat_tracking.db", help="Database file path")
+        parser.add_argument("--db-path", default="data/boat_tracking.db", help="Database file path (relative paths stored under data/)")
         
         args = parser.parse_args()
         

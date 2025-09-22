@@ -93,16 +93,39 @@ class DatabaseManager:
             data_dir = os.path.join(project_root, 'data')
             os.makedirs(data_dir, exist_ok=True)
             preferred = os.path.join(data_dir, db_path)
-            # Backward-compat candidates (existing paths take precedence)
+            # Legacy candidates
             legacy_root = os.path.join(project_root, db_path)
             legacy_app_data = os.path.join(app_dir, 'data', db_path)
             legacy_app_root = os.path.join(app_dir, db_path)
-            if os.path.exists(legacy_root):
+
+            # If preferred exists, always use it
+            if os.path.exists(preferred):
+                db_path = preferred
+            # Otherwise, adopt the first legacy that exists and migrate to preferred
+            elif os.path.exists(legacy_root):
                 db_path = legacy_root
+                try:
+                    import shutil
+                    shutil.copy2(legacy_root, preferred)
+                    db_path = preferred
+                except Exception:
+                    pass
             elif os.path.exists(legacy_app_data):
                 db_path = legacy_app_data
+                try:
+                    import shutil
+                    shutil.copy2(legacy_app_data, preferred)
+                    db_path = preferred
+                except Exception:
+                    pass
             elif os.path.exists(legacy_app_root):
                 db_path = legacy_app_root
+                try:
+                    import shutil
+                    shutil.copy2(legacy_app_root, preferred)
+                    db_path = preferred
+                except Exception:
+                    pass
             else:
                 db_path = preferred
         self.db_path = db_path
