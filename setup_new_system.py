@@ -6,7 +6,7 @@ Handles database initialization and sample data creation
 
 import sys
 import os
-from database_models import DatabaseManager, Boat, Beacon, BoatBeaconAssignment
+from app.database_models import DatabaseManager, Boat, Beacon, BoatBeaconAssignment
 from datetime import datetime, timezone
 
 def setup_database(db_path: str = "boat_tracking.db"):

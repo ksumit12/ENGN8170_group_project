@@ -1,0 +1,127 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "fontSize": "18px",
+    "fontFamily": "Inter, Arial, sans-serif",
+    "primaryColor": "#ffffff",
+    "primaryBorderColor": "#222222",
+    "lineColor": "#2c3e50",
+    "arrowheadSize": 12
+  },
+  "flowchart": { "curve": "step" }
+}}%%
+
+flowchart LR
+
+%% =========================
+%% MAIN BLOCKS (subgraphs)
+%% =========================
+
+subgraph UN["User & Network"]
+  direction TB
+  U1["Phones / Laptops<br/><span style='font-size:16px'>Dashboard + Reports</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F5, F6, F8, F9)</b>"]
+  U2["Optional USB Speaker<br/><span style='font-size:16px'>Entry/Exit Tones</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F5, F6)</b>"]
+end
+
+subgraph EG["Edge Gateway (Raspberry Pi 4)"]
+  direction LR
+
+  subgraph RX["Receivers at Passage"]
+    direction TB
+    R1["TP‑Link BLE Receiver hci0<br/><span style='font-size:16px'>USB Dongle + Antenna</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F1, F7)</b>"]
+    R2["TP‑Link BLE Receiver hci1<br/><span style='font-size:16px'>USB Dongle + Antenna</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F1, F7)</b>"]
+    R3["Optional Overhead Receiver<br/><span style='font-size:16px'>Coverage Boost</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F1, F7)</b>"]
+  end
+
+  subgraph INJ["BLE Ingest"]
+    direction TB
+    S1["BLE Scanner Service (bleak)<br/><span style='font-size:16px'>Adapters pinned: hci0 / hci1 • RSSI filters</span><br/><span style='font-size:16px'>Batch + Post Observations</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F1, F2, F7)</b>"]
+  end
+
+  subgraph EVT["Event Engine"]
+    direction TB
+    E1["Entry/Exit FSM + Hysteresis<br/><span style='font-size:16px'>Direction from gate order + thresholds</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F2, F3)</b>"]
+    E2["Offline Buffer (durable replay)<br/><span style='font-size:16px'>Queue + Backoff when API unreachable</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F12)</b>"]
+  end
+
+  subgraph ST["State Store"]
+    direction TB
+    DB["SQLite Database<br/><span style='font-size:16px'>boats, beacons, assignments, beacon_states</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F3, F8, F10)</b>"]
+  end
+
+  subgraph WEB["Web/App Server"]
+    direction TB
+    W1["Flask API + Dashboard<br/><span style='font-size:16px'>REST: detections, boats, presence</span><br/><span style='font-size:16px'>UI: whiteboard with Time IN / OUT</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F5, F6, F8, F9)</b>"]
+    W2["System Logger (rotating files)<br/><span style='font-size:16px'>Status • Audit • Errors • CSV export ready</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F5, F8, F9)</b>"]
+  end
+
+  subgraph NT["Notifier (Optional)"]
+    N1["Webhooks / MQTT / Email / Sounds<br/><span style='font-size:16px'>On entry/exit events</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F5, F6, F9)</b>"]
+  end
+
+  subgraph PUB["Public Access"]
+    T1["ngrok HTTP Tunnel<br/><span style='font-size:16px'>Public URL to Flask</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F5, F6, F8, F9)</b>"]
+  end
+end
+
+subgraph BT["Boat Tag"]
+  B1["BLE Beacon on Boat<br/><span style='font-size:16px'>Unique ID • Waterproof tag</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F1)</b>"]
+end
+
+PWR["Provide System Power<br/><span style='font-size:16px'>UPS / PoE / 5V</span><br/><span style='font-size:16px'>────────────</span><br/><b>(F11)</b>"]
+
+%% =========================
+%% FLOWS (orthogonal, larger arrows)
+%% =========================
+
+B1 --> R1
+B1 --> R2
+B1 --> R3
+
+R1 --> S1
+R2 --> S1
+R3 --> S1
+
+S1 -- "Observations (JSON)" --> W1
+S1 -- "Queue / Retry" --> E2
+W1 -- "Upsert / Query" --> DB
+E1 -- "Update beacon_states" --> DB
+W1 -- "State changes" --> E1
+
+W1 -- "Dashboard + Reports" --> U1
+W1 -- "Public URL" --> T1
+T1 -- "External Access" --> U1
+E1 -- "Events" --> N1
+N1 -- "Alerts / Tones" --> U2
+
+W2 --- W1
+PWR -. "powers" .- EG
+PWR -. "powers" .- BT
+
+%% =========================
+%% COLOR CODING (white background friendly)
+%% Main block fills vs. inner items slightly contrasted
+%% =========================
+
+%% User & Network
+style UN fill:#e8f3ff,stroke:#1e6bd6,stroke-width:2px,rx:8,ry:8
+classDef unInner fill:#f5f9ff,stroke:#1e6bd6,stroke-width:1.5px,rx:6,ry:6,color:#0f2647
+class U1,U2 unInner
+
+%% Edge Gateway (light red theme)
+style EG fill:#ffe6e6,stroke:#ff6b6b,stroke-width:2px,rx:10,ry:10
+classDef egInner fill:#fff5f5,stroke:#ff6b6b,stroke-width:1.5px,rx:6,ry:6,color:#3d1f1f
+class RX,INJ,EVT,ST,WEB,NT,PUB egInner
+class R1,R2,R3,S1,E1,E2,DB,W1,W2,N1,T1 egInner
+
+%% Boat Tag (warm yellow)
+style BT fill:#fff5cc,stroke:#e0a400,stroke-width:2px,rx:8,ry:8
+classDef btInner fill:#fff9dd,stroke:#e0a400,stroke-width:1.5px,rx:6,ry:6,color:#4a3b00
+class B1 btInner
+
+%% Power (neutral gray)
+classDef power fill:#f0f0f0,stroke:#666666,stroke-width:1.5px,rx:6,ry:6,color:#222222
+class PWR power
+
+%% Link styles (thicker for visibility on white)
+linkStyle default stroke:#2c3e50,stroke-width:2.5px

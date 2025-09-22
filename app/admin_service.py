@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import json
 import os
 
-from database_models import DatabaseManager, BoatStatus
+from .database_models import DatabaseManager, BoatStatus
 
 
 def _ok(payload: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
@@ -89,7 +89,7 @@ def register_beacon(db: DatabaseManager, data: Dict[str, Any]) -> Tuple[int, Dic
 
     # Update beacon display name (best-effort)
     try:
-        from database_models import BeaconStatus  # noqa: F401 (import for side-effects/types only)
+        from .database_models import BeaconStatus  # noqa: F401 (import for side-effects/types only)
         db.update_beacon(beacon.id, name=disp_name or beacon.name or boat_name)
     except Exception:
         pass

@@ -127,10 +127,11 @@ grp_project/
 ├── boat_tracking_system.py    # Main orchestrator (API + scanners + dashboard)
 ├── api_server.py              # REST API (Flask) and presence endpoints
 ├── ble_scanner.py             # BLE scanner (filters iBeacon) and posts detections
-├── database_models.py         # SQLite models and CRUD
-├── entry_exit_fsm.py          # Entry/exit finite state machine
-├── admin_service.py           # Admin operations service
-├── logging_config.py          # Centralized logging configuration
+├── app/                       # Core application modules
+│   ├── database_models.py     # SQLite models and CRUD
+│   ├── entry_exit_fsm.py      # Entry/exit finite state machine
+│   ├── admin_service.py       # Admin operations service
+│   └── logging_config.py      # Centralized logging configuration
 ├── requirements.txt           # Python dependencies
 ├── data/                      # Database and logs directory
 │   ├── boat_tracking.db      # SQLite database
@@ -184,3 +185,64 @@ grp_project/
 ---
 
 For migration details from the old single-beacon scripts, see `MIGRATION_GUIDE.md`.
+
+## Multi-Gate Architecture (Hardware Isolation)
+
+This system now separates hardware scanning from the API/FSM/dashboard so you can scale to multiple gates and tune each scanner independently.
+
+- Hardware daemon: `scanner_service.py`
+  - Talks to BLE adapters only (hci0/hci1/...).
+  - Posts observations to the API at `/api/v1/detections`.
+  - Supports multi-gate config and per-scanner tuning via `rssi_threshold` and `rssi_bias_db`.
+- API + FSM + Dashboard: `boat_tracking_system.py` (or `api_server.py` for API only)
+  - Consumes observations, runs entry/exit FSM, updates DB, serves UI.
+
+### Config for multi-gate scanning
+Create a file `scanner_config.json`:
+
+```json
+{
+  "api_host": "localhost",
+  "api_port": 8000,
+  "gates": [
+    {
+      "id": "gate-1",
+      "hysteresis": { "enter_dbm": -58, "exit_dbm": -64, "min_hold_ms": 1200 },
+      "scanners": [
+        { "id": "gate-1-left",  "adapter": "hci0", "rssi_threshold": -60, "rssi_bias_db": 0 },
+        { "id": "gate-1-right", "adapter": "hci1", "rssi_threshold": -55, "rssi_bias_db": 0 }
+      ]
+    }
+  ]
+}
+```
+
+- `rssi_threshold`: base cutoff per scanner (dBm)
+- `rssi_bias_db`: software bias to emulate scan power tuning (negative expands zone, positive tightens)
+
+### Run
+- Start API/UI (on RPi):
+```bash
+python3 boat_tracking_system.py --api-port 8000 --web-port 5000
+```
+- Start hardware daemon (same host):
+```bash
+python3 scanner_service.py --config scanner_config.json
+```
+
+### Logs
+- Scanner posts include `gate_id`, `scanner_id`, `adapter` and are logged as detections.
+- State changes include `gate_id` in the API response `state_changes`.
+
+### Notes on FSM and gates
+- Current FSM supports a single gate by `outer_scanner_id`/`inner_scanner_id` naming.
+- Maintenance-aware FSM: when a boat's `op_status` is `MAINTENANCE`, detections are ignored.
+- Beacon replacement safety: FSM context resets automatically if a beacon is re-mapped to a different boat.
+- Multi-gate isolation: scanners tag `gate_id` and API logs it; per-gate persistence can be added without schema breaks.
+
+### Passage setup quick tips
+- Place scanners ~2–4 m apart (USB extension okay). Start with thresholds:
+  - Left: `rssi_threshold: -60`
+  - Right: `rssi_threshold: -55`
+- Adjust `rssi_bias_db` by ±2–5 dB to reduce overlap.
+- Verify with logs that each side primarily detects when the tag is closest.

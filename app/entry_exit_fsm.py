@@ -10,8 +10,8 @@ from typing import Dict, Optional, Tuple, List
 from dataclasses import dataclass
 from enum import Enum
 
-from database_models import DetectionState, DatabaseManager
-from logging_config import get_logger
+from .database_models import DetectionState, DatabaseManager
+from .logging_config import get_logger
 
 # Use the system logger
 logger = get_logger()
@@ -27,21 +27,29 @@ class FSMState(Enum):
 class BeaconFSM:
     beacon_id: str
     current_state: FSMState
-    last_outer_seen: Optional[datetime]
-    last_inner_seen: Optional[datetime]
-    entry_timestamp: Optional[datetime]
-    exit_timestamp: Optional[datetime]
-    last_update: datetime
+    boat_id: Optional[str] = None
+    last_outer_seen: Optional[datetime] = None
+    last_inner_seen: Optional[datetime] = None
+    entry_timestamp: Optional[datetime] = None
+    exit_timestamp: Optional[datetime] = None
+    last_update: Optional[datetime] = None
 
 class EntryExitFSM:
     def __init__(self, db_manager: DatabaseManager, 
                  outer_scanner_id: str, inner_scanner_id: str,
-                 rssi_threshold: int = -70, hysteresis: int = 5):
+                 rssi_threshold: int = -70, hysteresis: int = 5,
+                 confirm_k: int = 3, confirm_window_s: float = 2.0,
+                 absent_timeout_s: float = 12.0, alpha: float = 0.35):
         self.db = db_manager
         self.outer_scanner_id = outer_scanner_id
         self.inner_scanner_id = inner_scanner_id
         self.rssi_threshold = rssi_threshold
         self.hysteresis = hysteresis  # dBm hysteresis to prevent flicker
+        # Robust signal processing params
+        self.confirm_k = confirm_k
+        self.confirm_window_s = confirm_window_s
+        self.absent_timeout_s = absent_timeout_s
+        self.alpha = alpha
         
         # State cache for performance
         self.beacon_states: Dict[str, BeaconFSM] = {}
@@ -81,6 +89,7 @@ class EntryExitFSM:
             self.beacon_states[beacon_id] = BeaconFSM(
                 beacon_id=beacon_id,
                 current_state=FSMState.IDLE,
+                boat_id=None,
                 last_outer_seen=None,
                 last_inner_seen=None,
                 entry_timestamp=None,
@@ -91,6 +100,27 @@ class EntryExitFSM:
         beacon_state = self.beacon_states[beacon_id]
         old_state = beacon_state.current_state
         
+        # Lookup mapped boat and enforce maintenance & mapping-change reset
+        mapped_boat = None
+        try:
+            mapped_boat = self.db.get_boat_by_beacon(beacon_id)
+        except Exception:
+            mapped_boat = None
+        # Maintenance override: ignore transitions
+        if mapped_boat and getattr(mapped_boat, 'op_status', None) == 'MAINTENANCE':
+            logger.info(f"Ignoring detection for maintenance boat {mapped_boat.name} (beacon {beacon_id})", "FSM")
+            return None
+        # Reset if boat mapping changed
+        current_boat_id = getattr(mapped_boat, 'id', None)
+        if beacon_state.boat_id is not None and beacon_state.boat_id != current_boat_id:
+            logger.info(f"Beacon {beacon_id} mapping changed {beacon_state.boat_id} -> {current_boat_id}; resetting FSM", "FSM")
+            beacon_state.current_state = FSMState.IDLE
+            beacon_state.last_outer_seen = None
+            beacon_state.last_inner_seen = None
+            beacon_state.entry_timestamp = None
+            beacon_state.exit_timestamp = None
+        beacon_state.boat_id = current_boat_id
+
         # Determine if this is inner or outer scanner detection
         is_outer = scanner_id == self.outer_scanner_id
         is_inner = scanner_id == self.inner_scanner_id
@@ -98,15 +128,46 @@ class EntryExitFSM:
         if not (is_outer or is_inner):
             return None  # Unknown scanner
         
-        # Update last seen timestamps
+        # Update last seen timestamps and simple EMA/trend
         if is_outer:
             beacon_state.last_outer_seen = now
         if is_inner:
             beacon_state.last_inner_seen = now
-        
-        # Apply RSSI threshold with hysteresis
-        strong_signal = rssi >= self.rssi_threshold
-        weak_signal = rssi < (self.rssi_threshold - self.hysteresis)
+
+        # Use recent-window confirmation counters per beacon
+        # Store tuples: (ts, outer_strong, outer_weak, inner_strong, inner_weak)
+        if not hasattr(self, '_recent_flags'):
+            self._recent_flags = {}
+        flags = self._recent_flags.setdefault(beacon_id, [])
+
+        # Visibility-aware strong/weak classification
+        def visible(last_seen: Optional[datetime]) -> bool:
+            return last_seen is not None and (now - last_seen).total_seconds() <= self.absent_timeout_s
+
+        s_high = self.rssi_threshold
+        s_low = self.rssi_threshold - self.hysteresis
+        outer_vis = visible(beacon_state.last_outer_seen)
+        inner_vis = visible(beacon_state.last_inner_seen)
+        outer_strong_now = outer_vis and rssi >= s_high if is_outer else False
+        inner_strong_now = inner_vis and rssi >= s_high if is_inner else False
+        outer_weak_now = (not outer_vis) or (is_outer and rssi <= s_low)
+        inner_weak_now = (not inner_vis) or (is_inner and rssi <= s_low)
+
+        flags.append((now, outer_strong_now, outer_weak_now, inner_strong_now, inner_weak_now))
+        cutoff = now - timedelta(seconds=self.confirm_window_s)
+        while flags and flags[0][0] < cutoff:
+            flags.pop(0)
+
+        def confirmed(idx: int) -> bool:
+            return sum(1 for t,*vals in flags if vals[idx]) >= self.confirm_k
+
+        outer_strong = confirmed(0)
+        outer_weak = confirmed(1)
+        inner_strong = confirmed(2)
+        inner_weak = confirmed(3)
+
+        strong_signal = outer_strong if is_outer else inner_strong
+        weak_signal = outer_weak if is_outer else inner_weak
         
         # State machine logic
         new_state = self._transition_state(beacon_state, is_outer, is_inner, strong_signal, weak_signal, now)

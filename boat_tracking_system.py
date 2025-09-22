@@ -21,11 +21,11 @@ except Exception:
     ZoneInfo = None  # py<3.9 fallback
 from flask_cors import CORS
 
-from database_models import DatabaseManager, BoatStatus
+from app.database_models import DatabaseManager, BoatStatus
 from ble_scanner import BLEScanner, ScannerConfig
 from api_server import APIServer
 import admin_service
-from logging_config import get_logger, setup_logging
+from app.logging_config import get_logger, setup_logging
 
 # Setup comprehensive logging
 system_logger = setup_logging()
@@ -113,6 +113,8 @@ class BoatTrackingSystem:
                     continue
                 beacon_state = None
                 last_seen_ts = 0
+                entry_ts = None
+                exit_ts = None
                 if beacon and beacon.last_seen:
                     ls = beacon.last_seen
                     if isinstance(ls, str):
@@ -122,12 +124,28 @@ class BoatTrackingSystem:
                             last_seen_ts = 0
                     else:
                         last_seen_ts = ls.timestamp()
+                # Fetch entry/exit timestamps from FSM state (if any)
+                try:
+                    with self.db.get_connection() as conn:
+                        c = conn.cursor()
+                        c.execute("SELECT entry_timestamp, exit_timestamp FROM beacon_states WHERE beacon_id = ?", (beacon.id,))
+                        row = c.fetchone()
+                        if row:
+                            entry_ts = row[0]
+                            exit_ts = row[1]
+                except Exception:
+                    entry_ts = None
+                    exit_ts = None
                 
                 result.append({
                     'id': boat.id,
                     'name': boat.name,
                     'class_type': boat.class_type,
                     'status': boat.status.value,
+                    'op_status': getattr(boat, 'op_status', 'ACTIVE'),
+                    'status_updated_at': getattr(boat, 'status_updated_at', None),
+                    'last_entry': (entry_ts.isoformat() if hasattr(entry_ts, 'isoformat') else entry_ts) if entry_ts else None,
+                    'last_exit': (exit_ts.isoformat() if hasattr(exit_ts, 'isoformat') else exit_ts) if exit_ts else None,
                     'beacon': {
                         'id': beacon.id if beacon else None,
                         'mac_address': beacon.mac_address if beacon else None,
@@ -306,7 +324,8 @@ class BoatTrackingSystem:
                 # Any active boat with status OUT is considered on water/overdue
                 for boat in self.db.get_all_boats():
                     if boat.status.value == 'out':
-                        overdue_ids.append(boat.id)
+                        # Show human-friendly boat names instead of IDs
+                        overdue_ids.append(boat.name)
 
             return jsonify({
                 'closing_time': closing_str,
@@ -327,6 +346,38 @@ class BoatTrackingSystem:
         @self.web_app.route('/reports')
         def reports_page():
             return render_template_string(self.get_reports_html())
+
+        @self.web_app.route('/manage')
+        def manage_page():
+            return render_template_string(self.get_manage_html())
+
+        # Search API (UI local) - case-insensitive, prefix + substring
+        @self.web_app.route('/api/v1/boats/search')
+        def ui_search_boats():
+            try:
+                q = (request.args.get('q') or '').strip()
+                limit = request.args.get('limit')
+                items = self.db.search_boats_by_name(q, int(limit) if limit else 20) if q else []
+                return jsonify(items)
+            except Exception as e:
+                logger.error(f"Search error: {e}")
+                return jsonify([])
+
+        @self.web_app.route('/api/v1/boats/by-name')
+        def ui_boat_by_name():
+            try:
+                name = (request.args.get('name') or '').strip()
+                if not name:
+                    return jsonify({'error':'name required'}), 400
+                # exact match ignoring case
+                matches = self.db.search_boats_by_name(name, 1)
+                for b in matches:
+                    if b['name'].lower() == name.lower():
+                        return jsonify(b)
+                return jsonify(None), 404
+            except Exception as e:
+                logger.error(f"Lookup error: {e}")
+                return jsonify({'error': str(e)}), 500
 
         @self.web_app.route('/api/reports/usage')
         def reports_usage():
@@ -736,6 +787,7 @@ class BoatTrackingSystem:
             </div>
             <div style="display:flex; gap:8px; align-items:center;">
                 <a href="/admin" class="primary-btn" style="text-decoration:none; display:inline-block;">Admin</a>
+                <a href="/manage" class="primary-btn" style="text-decoration:none; display:inline-block; background:#0d6efd;">Search / Manage</a>
                 <button class="primary-btn" onclick="openBeaconDiscovery()">+ Register New Beacon</button>
                 <button class="primary-btn" onclick="openLogViewer()" style="background:#6c757d;">Logs</button>
             </div>
@@ -757,12 +809,14 @@ class BoatTrackingSystem:
                     <tr>
                         <th>Boat</th>
                         <th>Status</th>
+                        <th>Time IN</th>
+                        <th>Time OUT</th>
                         <th>Last Seen</th>
                         <th>Signal</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td colspan="4" style="text-align:center; padding:14px; font-weight:600; color:#666;">Loading...</td></tr>
+                    <tr><td colspan="6" style="text-align:center; padding:14px; font-weight:600; color:#666;">Loading...</td></tr>
                 </tbody>
             </table>
             <div class="subnote">This board updates automatically from live scanner readings.</div>
@@ -973,6 +1027,27 @@ class BoatTrackingSystem:
     </div>
     
     <script>
+        function filterBoats() {
+            const q = (document.getElementById('boatSearch')?.value || '').toLowerCase().trim();
+            // Filter whiteboard rows
+            try {
+                const rows = document.querySelectorAll('#wbTable tbody tr');
+                rows.forEach(tr => {
+                    const td = tr.querySelector('td');
+                    const name = td ? (td.textContent || '').toLowerCase() : '';
+                    tr.style.display = q && !name.includes(q) ? 'none' : '';
+                });
+            } catch (e) {}
+            // Filter Boats Status list
+            try {
+                const items = document.querySelectorAll('#boatsList .boat-item');
+                items.forEach(div => {
+                    const label = div.querySelector('strong')?.textContent || '';
+                    const name = label.toLowerCase();
+                    div.style.display = q && !name.includes(q) ? 'none' : '';
+                });
+            } catch (e) {}
+        }
         function updateBoats() {
             fetch('/api/boats')
                 .then(response => response.json())
@@ -996,6 +1071,7 @@ class BoatTrackingSystem:
                                 <div>
                                     <strong>${boat.name}</strong> (${boat.class_type})
                                     <span class="status-badge ${statusBadge}">${boat.status.replace('_', ' ').toUpperCase()}</span>
+                                    ${boat.op_status ? `<span class="status-badge ${boat.op_status==='MAINTENANCE'?'status-unclaimed':'status-assigned'}">${boat.op_status}</span>` : ''}
                                 </div>
                                 ${beaconInfo}
                             </div>
@@ -1120,13 +1196,29 @@ class BoatTrackingSystem:
             ]).then(([boats, presence]) => {
                 const tbody = document.querySelector('#wbTable tbody');
                 if (!Array.isArray(boats) || boats.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:14px; font-weight:600; color:#666;">No boats registered</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:14px; font-weight:600; color:#666;">No boats registered</td></tr>';
                     return;
                 }
 
                 const rows = boats.map(b => {
                     const boatName = b.name;
                     const status = b.status === 'in_harbor' ? '<span class="wb-status-in">IN SHED</span>' : '<span class="wb-status-out">OUT</span>';
+                    // helpers
+                    const formatNice = (iso) => {
+                        if (!iso) return '—';
+                        const d = new Date(iso);
+                        const now = new Date();
+                        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                        const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+                        const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                        if (day.getTime() === today.getTime()) return `Today ${d.toLocaleTimeString()}`;
+                        if (day.getTime() === yesterday.getTime()) return `Yesterday ${d.toLocaleTimeString()}`;
+                        return d.toLocaleDateString('en-AU') + ' ' + d.toLocaleTimeString();
+                    };
+
+                    const timeIn = formatNice(b.last_entry);
+                    const timeOut = formatNice(b.last_exit);
+
                     let lastSeen = '—';
                     if (b.beacon && b.beacon.last_seen) {
                         const lastSeenDate = new Date(b.beacon.last_seen);
@@ -1145,12 +1237,12 @@ class BoatTrackingSystem:
                         }
                     }
                     const signal = b.beacon && b.beacon.last_rssi != null ? `${rssiToPercent(b.beacon.last_rssi)}% (${b.beacon.last_rssi} dBm)` : '—';
-                    return `<tr><td>${boatName}</td><td>${status}</td><td>${lastSeen}</td><td>${signal}</td></tr>`;
+                    return `<tr><td>${boatName}</td><td>${status}</td><td>${timeIn}</td><td>${timeOut}</td><td>${lastSeen}</td><td>${signal}</td></tr>`;
                 }).join('');
                 tbody.innerHTML = rows;
             }).catch(() => {
                 const tbody = document.querySelector('#wbTable tbody');
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:14px; font-weight:600; color:#666;">Error loading whiteboard</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:14px; font-weight:600; color:#666;">Error loading whiteboard</td></tr>';
             });
         }
 
@@ -1618,6 +1710,205 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
     run();
   </script>
 </body></html>
+        """
+
+    def get_manage_html(self):
+        return """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manage Boats & Beacons</title>
+  <style>
+    body { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#0f1a1f; color:#e8eef2; }
+    .container { max-width: 980px; margin: 24px auto; padding: 0 16px; }
+    .card { background:#13232b; border:1px solid #20323b; border-radius:10px; padding:16px; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+    .row { display:flex; gap:10px; align-items:center; }
+    .title { font-weight:800; margin:0 0 12px 0; font-size: 1.4rem; letter-spacing:.3px; }
+    .muted { color:#9fb2bd; font-size:.9rem; }
+    input[type=text] { padding:8px 10px; border:1px solid #2a3f49; background:#0d171c; color:#e8eef2; border-radius:8px; min-width:280px; }
+    button { background:#0d6efd; color:white; border:none; padding:8px 12px; border-radius:8px; cursor:pointer; font-weight:700; }
+    button.secondary { background:#6c757d; }
+    table { width:100%; border-collapse: collapse; margin-top:12px; }
+    th,td { border:1px solid #2a3f49; padding:10px; }
+    th { background:#0f1a1f; text-align:left; }
+    .badge { padding:3px 8px; border-radius:999px; font-size:.75rem; font-weight:800; }
+    .badge.active { background:#d4edda; color:#155724; }
+    .badge.maint { background:#fff3cd; color:#856404; }
+    .actions { display:flex; gap:6px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="row" style="justify-content:space-between; gap:12px;">
+        <div class="title">Search & Manage</div>
+        <a href="/" class="muted" style="text-decoration:none;">← Back to Dashboard</a>
+      </div>
+      <div class="row" style="margin-bottom:10px;">
+        <input id="q" type="text" placeholder="Search boats by name..." oninput="suggest()" />
+        <button onclick="doSearch()">Search</button>
+      </div>
+      <div id="suggestions" class="muted" style="margin-bottom:8px;"></div>
+      <div id="results" class="muted">Type a boat name and click Search.</div>
+    </div>
+  </div>
+
+  <script>
+    async function doSearch() {
+      const q = document.getElementById('q').value.trim();
+      const res = await fetch('/api/v1/boats/search?q=' + encodeURIComponent(q));
+      const items = await res.json();
+      if (!items.length) { document.getElementById('results').innerHTML = 'No matches.'; return; }
+      let html = '<table><thead><tr><th>Name</th><th>Class</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+      for (const b of items) {
+        const rowId = `row_${b.id}`;
+        html += `<tr id="${rowId}">
+          <td>${b.name}</td>
+          <td>${b.class_type}</td>
+          <td id="status_${b.id}">
+            <span id="statusBadge_${b.id}" class="badge active">ACTIVE</span>
+            <select id="opSel_${b.id}" style="margin-left:8px;" onchange="updateStatus('${b.id}', this.value)">
+              <option value="ACTIVE">Running</option>
+              <option value="MAINTENANCE">Maintenance</option>
+            </select>
+          </td>
+          <td class="actions">
+            <button class="secondary" onclick="openReplaceModal('${b.id}', '${b.name.replace(/'/g, "\\'")}')">Replace Beacon</button>
+          </td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+      document.getElementById('results').innerHTML = html;
+      // fetch presence to render status/toggle labels
+      for (const b of items) { renderPresence(b.id); }
+    }
+
+    let suggestTimer;
+    async function suggest() {
+      clearTimeout(suggestTimer);
+      suggestTimer = setTimeout(async () => {
+        const q = document.getElementById('q').value.trim();
+        if (!q) { document.getElementById('suggestions').innerHTML=''; return; }
+        const res = await fetch('/api/v1/boats/search?q=' + encodeURIComponent(q));
+        const items = await res.json();
+        if (!items.length) { document.getElementById('suggestions').innerHTML=''; return; }
+        const list = items.map(b => `<a href=\"#\" onclick=\"document.getElementById('q').value='${b.name.replace(/'/g, "\'")}';doSearch();return false;\" style=\"margin-right:10px; text-decoration:none; color:#0d6efd;\">${b.name}</a>`).join('');
+        document.getElementById('suggestions').innerHTML = 'Suggestions: ' + list;
+      }, 200);
+    }
+
+    async function updateStatus(boatId, value) {
+      try {
+        const ok = confirm('Change status to ' + value + '?');
+        if (!ok) { const sel=document.getElementById('opSel_'+boatId); if (sel) sel.value = (document.getElementById('statusBadge_'+boatId)?.textContent || 'ACTIVE'); return; }
+        const r = await fetch(`/api/v1/boats/${boatId}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status:value}) });
+        const j = await r.json().catch(()=>({}));
+        if (!r.ok || j.error) throw new Error(j.error || 'Save failed');
+        // Visual confirmation
+        const badge = document.getElementById('statusBadge_' + boatId);
+        if (badge) { badge.className = 'badge ' + (value==='MAINTENANCE'?'maint':'active'); badge.textContent = value; }
+        // Also refresh dashboard cards
+        updateBoats();
+        alert('Status updated to ' + value);
+        renderPresence(boatId);
+      } catch(e) { alert('Failed: ' + e.message); }
+    }
+
+    async function renderPresence(boatId) {
+      try {
+        const r = await fetch(`/api/v1/presence/${boatId}`);
+        const j = await r.json();
+        const badge = document.getElementById('statusBadge_' + boatId);
+        const sel = document.getElementById('opSel_' + boatId);
+        const op = (j.op_status || 'ACTIVE').toUpperCase();
+        const isMaint = op === 'MAINTENANCE';
+        if (badge) { badge.className = 'badge ' + (isMaint ? 'maint' : 'active'); badge.textContent = op; }
+        if (sel) sel.value = op;
+      } catch (e) { /* ignore */ }
+    }
+
+    async function replaceBeacon(boatId) {
+      const mac = prompt('Enter new beacon MAC (AA:BB:CC:DD:EE:FF):');
+      if (!mac) return;
+      try {
+        const res = await fetch(`/api/v1/boats/${boatId}/replace-beacon`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({new_mac: mac}) });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || 'Unknown error');
+        alert('Replaced. New MAC: ' + j.beacon_mac);
+      } catch(e) { alert('Failed: ' + e.message); }
+    }
+
+    // Replace Beacon Modal with Start/Stop scanning
+    let replaceScanTimer = null;
+    function openReplaceModal(boatId, boatName) {
+      const modal = document.getElementById('replaceModal');
+      modal.style.display = 'block';
+      modal.setAttribute('data-boat', boatId);
+      modal.setAttribute('data-name', boatName);
+      document.getElementById('scanList').innerHTML = '<div class="muted">Click Start Scanning to find nearby unassigned beacons.</div>';
+      const btn = document.getElementById('scanToggle');
+      btn.textContent = 'Start Scanning';
+      btn.style.background = '#0d6efd';
+      if (replaceScanTimer) { clearInterval(replaceScanTimer); replaceScanTimer = null; }
+    }
+    function closeReplaceModal(){
+      const modal = document.getElementById('replaceModal');
+      modal.style.display = 'none';
+      if (replaceScanTimer) { clearInterval(replaceScanTimer); replaceScanTimer = null; }
+    }
+    async function pollReplaceBeacons(){
+      const res = await fetch('/api/active-beacons');
+      const data = await res.json();
+      const list = document.getElementById('scanList');
+      // unassigned only
+      const unassigned = data.filter(b => b.status === 'unclaimed');
+      if (!unassigned.length) { list.innerHTML = '<div class="muted">Scanning… no unassigned beacons yet.</div>'; return; }
+      const boatId = document.getElementById('replaceModal').getAttribute('data-boat');
+      const boatName = document.getElementById('replaceModal').getAttribute('data-name');
+      list.innerHTML = unassigned.map(b => `<button class="secondary" onclick="confirmReplace('${boatId}','${boatName.replace(/'/g, "\\'")}','${b.mac_address}')">${b.mac_address}</button>`).join(' ');
+    }
+    function toggleReplaceScan(){
+      const btn = document.getElementById('scanToggle');
+      if (replaceScanTimer){
+        clearInterval(replaceScanTimer); replaceScanTimer = null;
+        btn.textContent = 'Start Scanning';
+        btn.style.background = '#0d6efd';
+      } else {
+        pollReplaceBeacons();
+        replaceScanTimer = setInterval(pollReplaceBeacons, 1500);
+        btn.textContent = 'Stop Scanning';
+        btn.style.background = '#dc3545';
+      }
+    }
+
+    async function confirmReplace(boatId, boatName, mac) {
+      if (!confirm(`Replace current beacon for ${boatName} with ${mac}?`)) return;
+      try {
+        const res = await fetch(`/api/v1/boats/${boatId}/replace-beacon`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({new_mac: mac}) });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || 'Unknown error');
+        alert('Replaced. New MAC: ' + j.beacon_mac);
+      } catch(e) { alert('Failed: ' + e.message); }
+    }
+  </script>
+  
+  <!-- Replace Beacon Modal -->
+  <div id="replaceModal" style="display:none; position:fixed; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,.5); z-index:1000;">
+    <div style="background:#fff; color:#2c3e50; width:80%; max-width:700px; margin:6% auto; border-radius:12px; padding:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0;">Replace Beacon</h3>
+        <button onclick="closeReplaceModal()" style="background:#dc3545; color:#fff; border:none; padding:6px 10px; border-radius:6px;">×</button>
+      </div>
+      <div style="margin:12px 0;">
+        <button id="scanToggle" onclick="toggleReplaceScan()" style="background:#0d6efd; color:#fff; border:none; padding:8px 12px; border-radius:8px; font-weight:700;">Start Scanning</button>
+      </div>
+      <div id="scanList" class="muted">Click Start Scanning to find nearby unassigned beacons.</div>
+    </div>
+  </div>
+</body>
+</html>
         """
 
 def get_default_config():

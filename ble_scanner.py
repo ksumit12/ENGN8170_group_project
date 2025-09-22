@@ -17,7 +17,7 @@ import logging
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from bleak import BleakScanner
-from logging_config import get_logger
+from app.logging_config import get_logger
 
 # Use the system logger
 logger = get_logger()
@@ -76,12 +76,14 @@ class ScannerConfig:
     scanner_id: str
     server_url: str
     api_key: str
+    gate_id: Optional[str] = None  # Logical gate this scanner belongs to
     scan_interval: float = 1.0
     rssi_threshold: int = -80
     batch_size: int = 10
     dry_run: bool = False  # If True, print payload instead of POST
     active_window_seconds: int = 8  # Consider detections "active" within this many seconds
     adapter: str = None  # BLE adapter to use (e.g., 'hci0', 'hci1', 'hci2')
+    rssi_bias_db: int = 0  # Software "power" tuning: positive makes scanner stricter, negative more permissive
 
 # ---------- Parsing helpers ----------
 def _fmt_uuid(b: bytes) -> str:
@@ -173,8 +175,13 @@ class BLEScanner:
         if rssi is None:
             logger.debug(f"Skipping advertisement with no RSSI for {getattr(device, 'address', 'unknown')}", "SCANNER")
             return
-        if rssi < self.config.rssi_threshold:
-            logger.debug(f"Ignoring {getattr(device, 'address', 'unknown')} due to RSSI {rssi}dBm < threshold {self.config.rssi_threshold}dBm", "SCANNER")
+        # Apply software bias to emulate scan power tuning
+        effective_threshold = self.config.rssi_threshold + self.config.rssi_bias_db
+        if rssi < effective_threshold:
+            logger.debug(
+                f"Ignoring {getattr(device, 'address', 'unknown')} due to RSSI {rssi}dBm < threshold {effective_threshold}dBm",
+                "SCANNER"
+            )
             return
 
         mac = device.address
@@ -255,6 +262,8 @@ class BLEScanner:
 
         payload = {
             "scanner_id": self.config.scanner_id,
+            "gate_id": self.config.gate_id,
+            "adapter": self.config.adapter,
             "observations": [
                 {
                     # Always send these (tie to boat using protocol + beacon_stable_id)
