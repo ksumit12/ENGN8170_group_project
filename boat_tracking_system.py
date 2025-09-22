@@ -379,6 +379,68 @@ class BoatTrackingSystem:
                 logger.error(f"Lookup error: {e}")
                 return jsonify({'error': str(e)}), 500
 
+        # Mirror management endpoints locally so Manage page can PATCH on same origin
+        @self.web_app.route('/api/v1/boats/<boat_id>/status', methods=['PATCH'])
+        def ui_patch_boat_status(boat_id):
+            try:
+                data = request.get_json() or {}
+                status = data.get('status')
+                if status not in ('ACTIVE','MAINTENANCE','RETIRED'):
+                    return jsonify({'error': 'Invalid status'}), 400
+                # Persist op_status directly via DB helper
+                self.db.set_boat_op_status(boat_id, status)
+                return jsonify({'ok': True})
+            except Exception as e:
+                logger.error(f"ui_patch_boat_status failed: {e}")
+                return jsonify({'error': str(e)}), 500
+
+        @self.web_app.route('/api/v1/boats/<boat_id>/replace-beacon', methods=['POST'])
+        def ui_replace_beacon(boat_id):
+            try:
+                data = request.get_json() or {}
+                new_mac = (data.get('new_mac') or '').strip()
+                if not new_mac:
+                    return jsonify({'error': 'new_mac required'}), 400
+                beacon = self.db.replace_beacon_for_boat(boat_id, new_mac)
+                return jsonify({'ok': True, 'beacon_mac': beacon.mac_address})
+            except Exception as e:
+                logger.error(f"ui_replace_beacon failed: {e}")
+                return jsonify({'error': str(e)}), 500
+
+        @self.web_app.route('/api/v1/presence/<boat_id>')
+        def ui_boat_presence(boat_id):
+            try:
+                boat = self.db.get_boat(boat_id)
+                if not boat:
+                    return jsonify({'error': 'Boat not found'}), 404
+                beacon = self.db.get_beacon_by_boat(boat_id)
+                in_harbor = False
+                last_seen = None
+                last_rssi = None
+                if beacon and beacon.last_seen:
+                    last_seen = beacon.last_seen.isoformat() if not isinstance(beacon.last_seen, str) else beacon.last_seen
+                    last_rssi = beacon.last_rssi
+                    # simple recency check (8s window)
+                    try:
+                        ls = beacon.last_seen if not isinstance(beacon.last_seen, str) else datetime.fromisoformat(beacon.last_seen)
+                        in_harbor = (datetime.now(timezone.utc) - ls).total_seconds() <= 8
+                    except Exception:
+                        in_harbor = False
+                return jsonify({
+                    'boat_id': boat.id,
+                    'boat_name': boat.name,
+                    'op_status': getattr(boat, 'op_status', None),
+                    'beacon_id': beacon.id if beacon else None,
+                    'beacon_mac': beacon.mac_address if beacon else None,
+                    'status': 'entered' if in_harbor else 'out',
+                    'in_harbor': in_harbor,
+                    'last_seen': last_seen,
+                    'last_rssi': last_rssi
+                })
+            except Exception as e:
+                logger.error(f"ui_boat_presence failed: {e}")
+                return jsonify({'error': str(e)}), 500
+
         @self.web_app.route('/api/reports/usage')
         def reports_usage():
             """Aggregate outings from detections by pairing EXITED->ENTERED events per boat.
