@@ -20,7 +20,7 @@ def first_cross(series, df):
 def main():
     df, fsm = run_trial(default_phases(), OUT, noise_sigma=2.0, dropout=0.05, dt=0.2, seed=42)
 
-    gt_out = (df.gt == "OUTSIDE").astype(int)
+    gt_out = (df["gt"] == "OUTSIDE").astype(int)
     pred_out = (df.state == "OUTSIDE").astype(int)
 
     TP = int(((pred_out == 1) & (gt_out == 1)).sum())
@@ -42,7 +42,7 @@ def main():
     pd_cross_out = first_cross(pred_out, df)
     lat_out = None if (gt_cross_out is None or pd_cross_out is None) else (pd_cross_out - gt_cross_out)
 
-    gt_in = (df.gt == "INSIDE").astype(int)
+    gt_in = (df["gt"] == "INSIDE").astype(int)
     pred_in = (df.state == "INSIDE").astype(int)
     lat_in = None
     try:

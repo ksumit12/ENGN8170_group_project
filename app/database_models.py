@@ -23,10 +23,15 @@ class BoatStatus(Enum):
 
 class DetectionState(Enum):
     IDLE = "idle"
-    SEEN_OUTER = "seen_outer"
-    SEEN_INNER = "seen_inner"
+    INSIDE = "entered"        # canonical name, value for DB compat
+    OUTSIDE = "exited"        # canonical name, value for DB compat
+    OUT_PENDING = "going_out"
+    IN_PENDING = "going_in"
+    # Backward-compatible aliases
     ENTERED = "entered"
     EXITED = "exited"
+    GOING_OUT = "going_out"
+    GOING_IN = "going_in"
 
 @dataclass
 class Boat:
@@ -533,10 +538,24 @@ class DatabaseManager:
             cursor.execute("SELECT * FROM beacons WHERE mac_address = ?", (mac_address,))
             row = cursor.fetchone()
             if row:
-                # Parse datetime strings
-                last_seen = datetime.fromisoformat(row[4]) if row[4] and isinstance(row[4], str) else row[4]
-                created_at = datetime.fromisoformat(row[6]) if isinstance(row[6], str) else row[6]
-                updated_at = datetime.fromisoformat(row[7]) if isinstance(row[7], str) else row[7]
+                # Parse datetime strings and ensure timezone awareness
+                last_seen = row[4]
+                if last_seen and isinstance(last_seen, str):
+                    last_seen = datetime.fromisoformat(last_seen)
+                if last_seen and last_seen.tzinfo is None:
+                    last_seen = last_seen.replace(tzinfo=timezone.utc)
+                
+                created_at = row[6]
+                if isinstance(created_at, str):
+                    created_at = datetime.fromisoformat(created_at)
+                if created_at and created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                
+                updated_at = row[7]
+                if isinstance(updated_at, str):
+                    updated_at = datetime.fromisoformat(updated_at)
+                if updated_at and updated_at.tzinfo is None:
+                    updated_at = updated_at.replace(tzinfo=timezone.utc)
                 
                 return Beacon(
                     id=row[0], mac_address=row[1], name=row[2], status=BeaconStatus(row[3]),
@@ -551,10 +570,24 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM beacons ORDER BY mac_address")
             for row in cursor.fetchall():
-                # Parse datetime strings
-                last_seen = datetime.fromisoformat(row[4]) if row[4] and isinstance(row[4], str) else row[4]
-                created_at = datetime.fromisoformat(row[6]) if isinstance(row[6], str) else row[6]
-                updated_at = datetime.fromisoformat(row[7]) if isinstance(row[7], str) else row[7]
+                # Parse datetime strings and ensure timezone awareness
+                last_seen = row[4]
+                if last_seen and isinstance(last_seen, str):
+                    last_seen = datetime.fromisoformat(last_seen)
+                if last_seen and last_seen.tzinfo is None:
+                    last_seen = last_seen.replace(tzinfo=timezone.utc)
+                
+                created_at = row[6]
+                if isinstance(created_at, str):
+                    created_at = datetime.fromisoformat(created_at)
+                if created_at and created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                
+                updated_at = row[7]
+                if isinstance(updated_at, str):
+                    updated_at = datetime.fromisoformat(updated_at)
+                if updated_at and updated_at.tzinfo is None:
+                    updated_at = updated_at.replace(tzinfo=timezone.utc)
                 
                 beacons.append(Beacon(
                     id=row[0], mac_address=row[1], name=row[2], status=BeaconStatus(row[3]),
@@ -654,10 +687,24 @@ class DatabaseManager:
             """, (boat_id,))
             row = cursor.fetchone()
             if row:
-                # Parse datetime strings
-                last_seen = datetime.fromisoformat(row[4]) if row[4] and isinstance(row[4], str) else row[4]
-                created_at = datetime.fromisoformat(row[6]) if isinstance(row[6], str) else row[6]
-                updated_at = datetime.fromisoformat(row[7]) if isinstance(row[7], str) else row[7]
+                # Parse datetime strings and ensure timezone awareness
+                last_seen = row[4]
+                if last_seen and isinstance(last_seen, str):
+                    last_seen = datetime.fromisoformat(last_seen)
+                if last_seen and last_seen.tzinfo is None:
+                    last_seen = last_seen.replace(tzinfo=timezone.utc)
+                
+                created_at = row[6]
+                if isinstance(created_at, str):
+                    created_at = datetime.fromisoformat(created_at)
+                if created_at and created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                
+                updated_at = row[7]
+                if isinstance(updated_at, str):
+                    updated_at = datetime.fromisoformat(updated_at)
+                if updated_at and updated_at.tzinfo is None:
+                    updated_at = updated_at.replace(tzinfo=timezone.utc)
                 return Beacon(
                     id=row[0], mac_address=row[1], name=row[2], status=BeaconStatus(row[3]),
                     last_seen=last_seen, last_rssi=row[5], created_at=created_at, updated_at=updated_at, notes=row[8]
@@ -679,6 +726,51 @@ class DatabaseManager:
             conn.commit()
         
         return detection_id
+
+    def insert_detection(self, scanner_id: str, beacon_id: str, rssi: int, state: DetectionState, timestamp: datetime) -> str:
+        """Insert a detection event at a specific timestamp (for backfilling history)."""
+        detection_id = f"DT{int(timestamp.timestamp() * 1000)}"
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO detections (id, scanner_id, beacon_id, rssi, timestamp, state)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (detection_id, scanner_id, beacon_id, rssi, timestamp, state.value),
+            )
+            conn.commit()
+        return detection_id
+
+    # Scanner helpers
+    def upsert_scanner(self, scanner_id: str, name: str, location: str, is_active: bool = True) -> None:
+        """Create or update a scanner row."""
+        with self.get_connection() as conn:
+            c = conn.cursor()
+            c.execute("SELECT id FROM scanners WHERE id = ?", (scanner_id,))
+            now = datetime.now(timezone.utc)
+            if c.fetchone():
+                c.execute(
+                    "UPDATE scanners SET name = ?, location = ?, is_active = ? WHERE id = ?",
+                    (name, location, 1 if is_active else 0, scanner_id),
+                )
+            else:
+                c.execute(
+                    "INSERT INTO scanners (id, name, location, is_active, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (scanner_id, name, location, 1 if is_active else 0, now),
+                )
+            conn.commit()
+
+    def get_active_assignments(self) -> List[Tuple[str, str]]:
+        """Return list of (boat_id, beacon_id) for active assignments."""
+        with self.get_connection() as conn:
+            c = conn.cursor()
+            c.execute(
+                """
+                SELECT boat_id, beacon_id FROM boat_beacon_assignments WHERE is_active = 1
+                """
+            )
+            return [(r[0], r[1]) for r in c.fetchall()]
     
     def update_beacon_state(self, beacon_id: str, state: DetectionState, 
                           last_outer_seen: datetime = None, last_inner_seen: datetime = None,

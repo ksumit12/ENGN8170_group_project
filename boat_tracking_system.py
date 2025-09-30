@@ -31,19 +31,213 @@ from app.logging_config import get_logger, setup_logging
 system_logger = setup_logging()
 logger = system_logger
 
+class TerminalDisplay:
+    """Terminal-based dashboard for HDMI display on headless Raspberry Pi."""
+    
+    def __init__(self, db):
+        self.db = db
+        self.last_update = None
+        self.update_interval = 3  # seconds
+        
+    def clear_screen(self):
+        """Clear the terminal screen."""
+        import os
+        os.system('clear' if os.name == 'posix' else 'cls')
+    
+    def format_time(self, dt):
+        """Format datetime for display."""
+        if not dt:
+            return "Never"
+        if isinstance(dt, str):
+            try:
+                dt = datetime.fromisoformat(dt)
+            except:
+                return str(dt)
+        return dt.strftime("%H:%M:%S")
+    
+    def format_date(self, dt):
+        """Format date for display."""
+        if not dt:
+            return "Never"
+        if isinstance(dt, str):
+            try:
+                dt = datetime.fromisoformat(dt)
+            except:
+                return str(dt)
+        return dt.strftime("%m/%d %H:%M")
+    
+    def rssi_to_percent(self, rssi):
+        """Convert RSSI to percentage."""
+        if rssi is None:
+            return "N/A"
+        max_rssi = -30
+        min_rssi = -100
+        clamped = max(min_rssi, min(max_rssi, rssi))
+        pct = round(((clamped - min_rssi) / (max_rssi - min_rssi)) * 100)
+        return f"{pct}%"
+    
+    def get_boat_status_icon(self, status):
+        """Get status icon for terminal display."""
+        if status == 'in_harbor':
+            return "[IN]"  # In harbor
+        else:
+            return "[OUT]"  # Out of harbor
+    
+    def update_display(self):
+        """Update the terminal display with current data."""
+        try:
+            # Get current data
+            boats = self.db.get_all_boats()
+            presence_data = self.get_presence_data()
+            
+            # Clear screen
+            self.clear_screen()
+            
+            # Header
+            print("=" * 80)
+            print("BLACK MOUNTAIN ROWING CLUB - BOAT TRACKING SYSTEM")
+            print("=" * 80)
+            print(f"Date: {datetime.now().strftime('%A, %B %d, %Y')} | Time: {datetime.now().strftime('%H:%M:%S')}")
+            print(f"Boats in Shed: {presence_data['total_in_harbor']}")
+            print("=" * 80)
+            
+            # Boat status table
+            print("\nBOAT STATUS BOARD")
+            print("-" * 80)
+            print(f"{'Boat Name':<25} {'Class':<8} {'Status':<12} {'Last Seen':<12} {'Signal':<8}")
+            print("-" * 80)
+            
+            # Sort boats: in_harbor first, then by last seen
+            sorted_boats = []
+            for boat in boats:
+                beacon = self.db.get_beacon_by_boat(boat.id)
+                last_seen_ts = 0
+                if beacon and beacon.last_seen:
+                    ls = beacon.last_seen
+                    if isinstance(ls, str):
+                        try:
+                            ls = datetime.fromisoformat(ls)
+                        except:
+                            last_seen_ts = 0
+                            ls = None
+                    if ls:
+                        # Ensure timezone awareness
+                        if ls.tzinfo is None:
+                            ls = ls.replace(tzinfo=timezone.utc)
+                        last_seen_ts = ls.timestamp()
+                    else:
+                        last_seen_ts = 0
+                
+                sorted_boats.append((boat, beacon, last_seen_ts))
+            
+            sorted_boats.sort(key=lambda x: (0 if x[0].status.value == 'in_harbor' else 1, -x[2]))
+            
+            for boat, beacon, last_seen_ts in sorted_boats:
+                status_icon = self.get_boat_status_icon(boat.status.value)
+                # Better status words: in_harbor -> "IN SHED", out -> "ON WATER"
+                if boat.status.value == 'in_harbor':
+                    status_text = f"{status_icon} IN SHED"
+                elif boat.status.value == 'out':
+                    status_text = f"{status_icon} ON WATER"
+                else:
+                    status_text = f"{status_icon} {boat.status.value.replace('_', ' ').upper()}"
+                last_seen = self.format_time(beacon.last_seen) if beacon and beacon.last_seen else "Never"
+                signal = f"{self.rssi_to_percent(beacon.last_rssi)}" if beacon and beacon.last_rssi else "N/A"
+                
+                print(f"{boat.name:<25} {boat.class_type:<8} {status_text:<12} {last_seen:<12} {signal:<8}")
+            
+            # Currently in shed section
+            if presence_data['boats_in_harbor']:
+                print(f"\nBOATS CURRENTLY IN SHED ({len(presence_data['boats_in_harbor'])})")
+                print("-" * 50)
+                for boat_data in presence_data['boats_in_harbor']:
+                    signal = self.rssi_to_percent(boat_data['last_rssi'])
+                    last_seen = self.format_time(boat_data['last_seen'])
+                    print(f"[IN] {boat_data['boat_name']} ({boat_data['boat_class']}) - Signal: {signal} - Last: {last_seen}")
+            
+            # System status
+            print(f"\nSYSTEM STATUS")
+            print("-" * 50)
+            print(f"Last Update: {datetime.now().strftime('%H:%M:%S')}")
+            print(f"Database: Connected")
+            print(f"Scanners: Active")
+            
+            # Footer
+            print("\n" + "=" * 80)
+            print("Press Ctrl+C to stop | Updates every 3 seconds")
+            print("=" * 80)
+            
+            self.last_update = datetime.now()
+            
+        except Exception as e:
+            print(f"Error updating display: {e}")
+    
+    def get_presence_data(self):
+        """Get presence data similar to web API."""
+        boats = self.db.get_all_boats()
+        boats_in_harbor = []
+        
+        for boat in boats:
+            try:
+                status_val = getattr(boat.status, 'value', str(boat.status))
+            except Exception:
+                status_val = str(boat.status)
+                
+            if status_val == 'in_harbor':
+                beacon = self.db.get_beacon_by_boat(boat.id)
+                if beacon:
+                    boats_in_harbor.append({
+                        'boat_id': boat.id,
+                        'boat_name': boat.name,
+                        'boat_class': boat.class_type,
+                        'beacon_mac': beacon.mac_address,
+                        'last_seen': beacon.last_seen,
+                        'last_rssi': beacon.last_rssi
+                    })
+        
+        return {
+            'boats_in_harbor': boats_in_harbor,
+            'total_in_harbor': len(boats_in_harbor)
+        }
+    
+    def start_display_loop(self):
+        """Start the terminal display update loop."""
+        import threading
+        import time
+        
+        def display_loop():
+            while True:
+                try:
+                    self.update_display()
+                    time.sleep(self.update_interval)
+                except KeyboardInterrupt:
+                    break
+                except Exception as e:
+                    print(f"Display error: {e}")
+                    time.sleep(1)
+        
+        display_thread = threading.Thread(target=display_loop, daemon=True)
+        display_thread.start()
+        return display_thread
+
 class BoatTrackingSystem:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, display_mode: str = 'web'):
         try:
             self.config = config
+            self.display_mode = display_mode
             self.db = DatabaseManager(config['database_path'])
             self.api_server = None
             self.scanners: List[BLEScanner] = []
             self.running = False
             
-            # Web dashboard
-            self.web_app = Flask(__name__)
-            CORS(self.web_app)
-            self.setup_web_routes()
+            # Web dashboard (only if web mode is enabled)
+            if display_mode in ['web', 'both']:
+                self.web_app = Flask(__name__)
+                CORS(self.web_app)
+                self.setup_web_routes()
+            else:
+                self.web_app = None
+                
             # simple settings persistence (file-based to avoid DB migration)
             self.settings_file = 'system/json/settings.json'
             
@@ -51,8 +245,14 @@ class BoatTrackingSystem:
             self.health_check_interval = 30  # seconds
             self.last_health_check = datetime.now(timezone.utc)
             
+            # Terminal display (only if terminal mode is enabled)
+            if display_mode in ['terminal', 'both']:
+                self.terminal_display = TerminalDisplay(self.db)
+            else:
+                self.terminal_display = None
+            
             logger.info("BoatTrackingSystem initialized successfully", "INIT")
-            logger.audit("SYSTEM_INIT", "SYSTEM", f"Config: {config}")
+            logger.audit("SYSTEM_INIT", "SYSTEM", f"Config: {config}, Display Mode: {display_mode}")
             
         except Exception as e:
             logger.critical(f"Failed to initialize BoatTrackingSystem: {e}", "INIT", e)
@@ -65,10 +265,11 @@ class BoatTrackingSystem:
         def dashboard():
             """Main dashboard page."""
             return render_template_string(self.get_dashboard_html())
-
+        
         @self.web_app.route('/admin')
         def admin_page_root():
             return render_template_string(self.get_admin_login_html())
+
 
         @self.web_app.route('/admin/reset', methods=['POST'])
         def admin_reset_endpoint():
@@ -119,11 +320,17 @@ class BoatTrackingSystem:
                     ls = beacon.last_seen
                     if isinstance(ls, str):
                         try:
-                            last_seen_ts = datetime.fromisoformat(ls).timestamp()
+                            ls = datetime.fromisoformat(ls)
                         except Exception:
                             last_seen_ts = 0
-                    else:
+                            ls = None
+                    if ls:
+                        # Ensure timezone awareness
+                        if ls.tzinfo is None:
+                            ls = ls.replace(tzinfo=timezone.utc)
                         last_seen_ts = ls.timestamp()
+                    else:
+                        last_seen_ts = 0
                 # Fetch entry/exit timestamps from FSM state (if any)
                 try:
                     with self.db.get_connection() as conn:
@@ -169,6 +376,49 @@ class BoatTrackingSystem:
                     del b['_last_seen_ts']
             
             return jsonify(result)
+
+        @self.web_app.route('/api/fsm-states')
+        def api_fsm_states():
+            """Return current FSM states per beacon with boat context for live viewers."""
+            rows = []
+            try:
+                with self.db.get_connection() as conn:
+                    c = conn.cursor()
+                    c.execute(
+                        """
+                        SELECT bs.beacon_id,
+                               bs.current_state,
+                               bs.entry_timestamp,
+                               bs.exit_timestamp,
+                               b.id as boat_id,
+                               b.name as boat_name,
+                               be.mac_address
+                        FROM beacon_states bs
+                        LEFT JOIN boat_beacon_assignments ba ON ba.beacon_id = bs.beacon_id AND ba.is_active = 1
+                        LEFT JOIN boats b ON b.id = ba.boat_id
+                        LEFT JOIN beacons be ON be.id = bs.beacon_id
+                        ORDER BY b.name
+                        """
+                    )
+                    for r in c.fetchall():
+                        rows.append({
+                            'beacon_id': r[0],
+                            'state': r[1],
+                            'entry_timestamp': r[2],
+                            'exit_timestamp': r[3],
+                            'boat_id': r[4],
+                            'boat_name': r[5],
+                            'mac_address': r[6],
+                        })
+            except Exception as e:
+                logger.exception('api_fsm_states failed')
+                return jsonify({'error': str(e)}), 500
+            return jsonify(rows)
+
+        @self.web_app.route('/fsm')
+        def fsm_viewer_page():
+            """Simple GUI viewer for FSM states with Mermaid diagram and live updates."""
+            return render_template_string(self.get_fsm_viewer_html())
         
         @self.web_app.route('/api/beacons')
         def api_beacons():
@@ -269,12 +519,20 @@ class BoatTrackingSystem:
                 if not ls:
                     return None
                 if isinstance(ls, str):
-                    return ls
+                    try:
+                        dt = datetime.fromisoformat(ls)
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        return dt.isoformat()
+                    except:
+                        return ls
                 try:
+                    if ls.tzinfo is None:
+                        ls = ls.replace(tzinfo=timezone.utc)
                     return ls.isoformat()
                 except Exception:
                     return str(ls)
-
+            
             return jsonify({
                 'boats_in_harbor': [{
                     'boat_id': boat.id,
@@ -287,7 +545,7 @@ class BoatTrackingSystem:
                 'total_in_harbor': len(boats_in_harbor),
                 'timestamp': time.time()
             })
-
+        
         @self.web_app.route('/api/overdue')
         def api_overdue():
             """Return boats that are OUT after closing time (default 20:00 Australia/Sydney)."""
@@ -326,7 +584,7 @@ class BoatTrackingSystem:
                     if boat.status.value == 'out':
                         # Show human-friendly boat names instead of IDs
                         overdue_ids.append(boat.name)
-
+            
             return jsonify({
                 'closing_time': closing_str,
                 'overdue_boat_ids': overdue_ids
@@ -418,14 +676,23 @@ class BoatTrackingSystem:
                 last_seen = None
                 last_rssi = None
                 if beacon and beacon.last_seen:
-                    last_seen = beacon.last_seen.isoformat() if not isinstance(beacon.last_seen, str) else beacon.last_seen
+                    ls = beacon.last_seen
+                    if isinstance(ls, str):
+                        try:
+                            ls = datetime.fromisoformat(ls)
+                        except Exception:
+                            ls = None
+                    if ls and ls.tzinfo is None:
+                        ls = ls.replace(tzinfo=timezone.utc)
+                    
+                    last_seen = ls.isoformat() if ls else None
                     last_rssi = beacon.last_rssi
+                    
                     # simple recency check (8s window)
-                    try:
-                        ls = beacon.last_seen if not isinstance(beacon.last_seen, str) else datetime.fromisoformat(beacon.last_seen)
+                    if ls:
                         in_harbor = (datetime.now(timezone.utc) - ls).total_seconds() <= 8
-                    except Exception:
-                        in_harbor = False
+                else:
+                    in_harbor = False
                 return jsonify({
                     'boat_id': boat.id,
                     'boat_name': boat.name,
@@ -444,14 +711,21 @@ class BoatTrackingSystem:
         @self.web_app.route('/api/reports/usage')
         def reports_usage():
             """Aggregate outings from detections by pairing EXITED->ENTERED events per boat.
-            Returns per-boat totals within optional ISO range.
+            Returns per-boat totals within optional ISO range with detailed boat information.
+            Optional: includeSessions=1 to also return session list per boat.
             """
             from_iso = request.args.get('from')
             to_iso = request.args.get('to')
             boat_id = request.args.get('boatId')
+            include_sessions = request.args.get('includeSessions') in ('1','true','True')
             def parse_iso(s):
                 if not s: return None
-                try: return datetime.fromisoformat(s.replace('Z','+00:00'))
+                try: 
+                    dt = datetime.fromisoformat(s.replace('Z','+00:00'))
+                    # Ensure timezone awareness
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    return dt
                 except Exception: return None
             start = parse_iso(from_iso)
             end = parse_iso(to_iso)
@@ -474,6 +748,9 @@ class BoatTrackingSystem:
                 events = []
                 for ts, st in rows:
                     t = datetime.fromisoformat(ts) if isinstance(ts,str) else ts
+                    # Ensure timezone awareness for comparison
+                    if t.tzinfo is None:
+                        t = t.replace(tzinfo=timezone.utc)
                     if start and t < start: continue
                     if end and t > end: continue
                     events.append((t, st))
@@ -481,6 +758,7 @@ class BoatTrackingSystem:
                 total_minutes = 0
                 count = 0
                 opened = None
+                sessions = []
                 for t, st in events:
                     if st in ('exited', 'ON_WATER') and opened is None:
                         opened = t
@@ -489,8 +767,31 @@ class BoatTrackingSystem:
                         if dur > 0:
                             total_minutes += int(dur)
                             count += 1
+                            if include_sessions:
+                                sessions.append({'start': opened.isoformat(), 'end': t.isoformat(), 'minutes': int(dur)})
                         opened = None
-                summaries.append({'boat_id': b.id, 'total_outings': count, 'total_minutes': total_minutes})
+                
+                # Get additional boat details
+                op_status = getattr(b, 'op_status', 'ACTIVE')
+                last_seen = beacon.last_seen.isoformat() if beacon.last_seen else None
+                last_rssi = beacon.last_rssi
+                
+                item = {
+                    'boat_id': b.id, 
+                    'boat_name': b.name,
+                    'boat_class': b.class_type,
+                    'boat_notes': b.notes,
+                    'op_status': op_status,
+                    'beacon_mac': beacon.mac_address,
+                    'last_seen': last_seen,
+                    'last_rssi': last_rssi,
+                    'total_outings': count, 
+                    'total_minutes': total_minutes,
+                    'avg_duration': round(total_minutes / count, 1) if count > 0 else 0
+                }
+                if include_sessions:
+                    item['sessions'] = sessions
+                summaries.append(item)
             return jsonify(summaries)
 
         @self.web_app.route('/api/reports/usage/export.csv')
@@ -503,12 +804,39 @@ class BoatTrackingSystem:
                 rows = resp.get_json()
             buf = io.StringIO()
             w = csv.writer(buf)
-            w.writerow(['boat_id','total_outings','total_minutes'])
+            w.writerow([
+                'boat_id', 'boat_name', 'boat_class', 'op_status', 'beacon_mac', 
+                'last_seen', 'last_rssi', 'total_outings', 'total_minutes', 'avg_duration', 'boat_notes'
+            ])
             for r in rows:
-                w.writerow([r['boat_id'], r['total_outings'], r['total_minutes']])
+                w.writerow([
+                    r['boat_id'], r['boat_name'], r['boat_class'], r['op_status'], 
+                    r['beacon_mac'], r['last_seen'], r['last_rssi'], r['total_outings'], 
+                    r['total_minutes'], r['avg_duration'], r['boat_notes']
+                ])
             from flask import Response
             return Response(buf.getvalue(), mimetype='text/csv')
         
+        @self.web_app.route('/api/boats/list')
+        def api_boats_list():
+            """Get list of all boats for dropdown selection."""
+            try:
+                boats = self.db.get_all_boats()
+                boat_list = []
+                for boat in boats:
+                    op_status = getattr(boat, 'op_status', 'ACTIVE')
+                    boat_list.append({
+                        'id': boat.id,
+                        'name': boat.name,
+                        'class_type': boat.class_type,
+                        'op_status': op_status,
+                        'display_name': f"{boat.name} ({boat.class_type})" + (f" - {op_status}" if op_status != 'ACTIVE' else "")
+                    })
+                return jsonify(boat_list)
+            except Exception as e:
+                logger.error(f"Failed to get boats list: {e}", "API", e)
+                return jsonify({'error': str(e)}), 500
+
         @self.web_app.route('/api/register-beacon', methods=['POST'])
         def register_beacon():
             try:
@@ -568,6 +896,108 @@ class BoatTrackingSystem:
             except Exception as e:
                 logger.error(f"Failed to get status: {e}", "API", e)
                 return jsonify({'error': str(e)}), 500
+        
+        @self.web_app.route('/api/logs/export', methods=['POST'])
+        def export_logs():
+            """Export logs with date/time range selection."""
+            try:
+                data = request.get_json() or {}
+                start_date = data.get('start_date')
+                end_date = data.get('end_date')
+                export_type = data.get('type', 'all')  # all, errors, main
+                
+                if not start_date or not end_date:
+                    return jsonify({'error': 'start_date and end_date are required'}), 400
+                
+                # Parse dates
+                try:
+                    start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                    end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                except ValueError:
+                    return jsonify({'error': 'Invalid date format. Use ISO format.'}), 400
+                
+                # Generate filename
+                filename = f"boat_tracking_logs_{start_dt.strftime('%Y%m%d_%H%M')}_to_{end_dt.strftime('%Y%m%d_%H%M')}.csv"
+                
+                # Export logs
+                log_data = self._export_logs_by_date_range(start_dt, end_dt, export_type)
+                
+                # Create CSV response
+                import io
+                import csv
+                from flask import Response
+                
+                output = io.StringIO()
+                writer = csv.writer(output)
+                
+                # Write header
+                writer.writerow(['timestamp', 'level', 'component', 'message'])
+                
+                # Write log entries
+                for entry in log_data:
+                    writer.writerow([
+                        entry.get('timestamp', ''),
+                        entry.get('level', ''),
+                        entry.get('component', ''),
+                        entry.get('message', '')
+                    ])
+                
+                output.seek(0)
+                
+                return Response(
+                    output.getvalue(),
+                    mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename={filename}'}
+                )
+                
+            except Exception as e:
+                logger.error(f"Failed to export logs: {e}", "API", e)
+                return jsonify({'error': str(e)}), 500
+        
+        @self.web_app.route('/api/logs/export/weekly', methods=['POST'])
+        def export_weekly_logs():
+            """Export logs for the past week."""
+            try:
+                end_date = datetime.now(timezone.utc)
+                start_date = end_date - timedelta(days=7)
+                
+                # Generate filename
+                filename = f"boat_tracking_weekly_logs_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.csv"
+                
+                # Export logs
+                log_data = self._export_logs_by_date_range(start_date, end_date, 'all')
+                
+                # Create CSV response
+                import io
+                import csv
+                from flask import Response
+                
+                output = io.StringIO()
+                writer = csv.writer(output)
+                
+                # Write header
+                writer.writerow(['timestamp', 'level', 'component', 'message'])
+                
+                # Write log entries
+                for entry in log_data:
+                    writer.writerow([
+                        entry.get('timestamp', ''),
+                        entry.get('level', ''),
+                        entry.get('component', ''),
+                        entry.get('message', '')
+                    ])
+                
+                output.seek(0)
+                
+                return Response(
+                    output.getvalue(),
+                    mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename={filename}'}
+                )
+                
+            except Exception as e:
+                logger.error(f"Failed to export weekly logs: {e}", "API", e)
+                return jsonify({'error': str(e)}), 500
     
     def start_api_server(self):
         """Start the API server."""
@@ -620,7 +1050,7 @@ class BoatTrackingSystem:
                     present_adapters = {line.split(':')[0] for line in out.splitlines() if line.startswith('hci')}
                 except Exception:
                     present_adapters = set()
-
+            
             for scanner_config in self.config['scanners']:
                 try:
                     adapter = scanner_config.get('adapter', None)
@@ -635,13 +1065,11 @@ class BoatTrackingSystem:
                         scan_interval=scanner_config.get('scan_interval', 1.0),
                         adapter=adapter
                     )
-                    
                     scanner = BLEScanner(config)
                     scanner.start_scanning()
                     self.scanners.append(scanner)
                     logger.info(f"Scanner {scanner_config['id']} started successfully", "SCANNER")
                     logger.audit("SCANNER_START", "SYSTEM", f"Scanner ID: {scanner_config['id']}")
-                    
                 except Exception as e:
                     logger.error(f"Failed to start scanner {scanner_config['id']}: {e}", "SCANNER", e)
                     continue
@@ -678,11 +1106,51 @@ class BoatTrackingSystem:
         except Exception as e:
             logger.critical(f"Web dashboard crashed: {e}", "WEB", e)
     
+    def start_terminal_display(self):
+        """Start terminal display for HDMI output."""
+        try:
+            if self.terminal_display:
+                self.terminal_display.start_display_loop()
+                logger.info("Terminal display started successfully", "TERMINAL")
+                logger.audit("TERMINAL_DISPLAY_START", "SYSTEM", "Terminal display started for HDMI output")
+            else:
+                logger.warning("Terminal display not initialized", "TERMINAL")
+        except Exception as e:
+            logger.critical(f"Failed to start terminal display: {e}", "TERMINAL", e)
+            raise
+    
+    def _export_logs_by_date_range(self, start_date, end_date, export_type='all'):
+        """Export logs within a date range."""
+        try:
+            # This is a simplified implementation - in a real system, you'd query log files
+            # For now, we'll return a placeholder structure
+            log_entries = []
+            
+            # In a real implementation, you would:
+            # 1. Read log files from the logging system
+            # 2. Parse timestamps and filter by date range
+            # 3. Filter by log type (all, errors, main)
+            # 4. Return structured log data
+            
+            # Placeholder implementation
+            log_entries.append({
+                'timestamp': start_date.isoformat(),
+                'level': 'INFO',
+                'component': 'SYSTEM',
+                'message': f'Log export requested for {start_date} to {end_date}'
+            })
+            
+            return log_entries
+            
+        except Exception as e:
+            logger.error(f"Failed to export logs by date range: {e}", "EXPORT", e)
+            return []
+    
     def start(self):
         """Start the entire system."""
         try:
             logger.info("Starting Boat Tracking System...", "SYSTEM")
-            logger.audit("SYSTEM_START", "SYSTEM", "Boat Tracking System starting")
+            logger.audit("SYSTEM_START", "SYSTEM", f"Boat Tracking System starting with display mode: {self.display_mode}")
             
             # Start API server
             self.start_api_server()
@@ -691,8 +1159,13 @@ class BoatTrackingSystem:
             # Start scanners
             self.start_scanners()
             
-            # Start web dashboard
-            self.start_web_dashboard()
+            # Start web dashboard (if enabled)
+            if self.display_mode in ['web', 'both']:
+                self.start_web_dashboard()
+            
+            # Start terminal display (if enabled)
+            if self.display_mode in ['terminal', 'both']:
+                self.start_terminal_display()
             
             # Start health monitoring
             self._start_health_monitoring()
@@ -700,8 +1173,14 @@ class BoatTrackingSystem:
             self.running = True
             logger.info("Boat Tracking System started successfully", "SYSTEM")
             logger.info(f"API Server: http://{self.config['api_host']}:{self.config['api_port']}", "SYSTEM")
-            logger.info(f"Web Dashboard: http://{self.config['web_host']}:{self.config['web_port']}", "SYSTEM")
-            logger.audit("SYSTEM_START_SUCCESS", "SYSTEM", "All components started successfully")
+            
+            if self.display_mode in ['web', 'both']:
+                logger.info(f"Web Dashboard: http://{self.config['web_host']}:{self.config['web_port']}", "SYSTEM")
+            
+            if self.display_mode in ['terminal', 'both']:
+                logger.info("Terminal Display: Active on HDMI output", "SYSTEM")
+            
+            logger.audit("SYSTEM_START_SUCCESS", "SYSTEM", f"All components started successfully with display mode: {self.display_mode}")
             
         except Exception as e:
             logger.critical(f"Failed to start Boat Tracking System: {e}", "SYSTEM", e)
@@ -722,6 +1201,9 @@ class BoatTrackingSystem:
         health_thread = threading.Thread(target=health_monitor, daemon=True)
         health_thread.start()
         logger.info("Health monitoring started", "HEALTH")
+        
+        # Start weekly log export scheduler
+        self._start_weekly_log_export()
     
     def _perform_health_check(self):
         """Perform system health check."""
@@ -754,6 +1236,68 @@ class BoatTrackingSystem:
             
         except Exception as e:
             logger.error(f"Health check error: {e}", "HEALTH", e)
+    
+    def _start_weekly_log_export(self):
+        """Start weekly log export scheduler (runs every Sunday at 11:59 PM)."""
+        def weekly_export_scheduler():
+            while self.running:
+                try:
+                    now = datetime.now(timezone.utc)
+                    
+                    # Check if it's Sunday and time is close to midnight
+                    if now.weekday() == 6 and now.hour == 23 and now.minute >= 59:
+                        self._perform_weekly_log_export()
+                        # Wait for next week to avoid multiple exports
+                        time.sleep(3600)  # Wait 1 hour
+                    else:
+                        # Check every minute
+                        time.sleep(60)
+                        
+                except Exception as e:
+                    logger.error(f"Weekly log export scheduler failed: {e}", "EXPORT", e)
+                    time.sleep(300)  # Wait 5 minutes on error
+        
+        export_thread = threading.Thread(target=weekly_export_scheduler, daemon=True)
+        export_thread.start()
+        logger.info("Weekly log export scheduler started", "EXPORT")
+    
+    def _perform_weekly_log_export(self):
+        """Perform weekly log export."""
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=7)
+            
+            # Create exports directory if it doesn't exist
+            import os
+            exports_dir = "data/exports"
+            os.makedirs(exports_dir, exist_ok=True)
+            
+            # Generate filename
+            filename = f"boat_tracking_weekly_logs_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.csv"
+            filepath = os.path.join(exports_dir, filename)
+            
+            # Export logs
+            log_data = self._export_logs_by_date_range(start_date, end_date, 'all')
+            
+            # Write to file
+            import csv
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['timestamp', 'level', 'component', 'message'])
+                
+                for entry in log_data:
+                    writer.writerow([
+                        entry.get('timestamp', ''),
+                        entry.get('level', ''),
+                        entry.get('component', ''),
+                        entry.get('message', '')
+                    ])
+            
+            logger.info(f"Weekly log export completed: {filepath}", "EXPORT")
+            logger.audit("WEEKLY_LOG_EXPORT", "SYSTEM", f"Exported logs from {start_date} to {end_date}")
+            
+        except Exception as e:
+            logger.error(f"Weekly log export failed: {e}", "EXPORT", e)
     
     def stop(self):
         """Stop the entire system."""
@@ -801,7 +1345,7 @@ class BoatTrackingSystem:
             --danger: #dc3545;
             --warning: #ffc107;
         }
-        body {
+        body { 
             font-family: 'Montserrat', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: var(--ink);
             color: #e9ecef;
@@ -821,12 +1365,12 @@ class BoatTrackingSystem:
         .primary-btn:hover { filter: brightness(1.05); }
         .dashboard { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 20px; }
         @media (max-width: 1100px) { .dashboard { grid-template-columns: 1fr; } }
-        .card {
+        .card { 
             background: var(--paper); color: #2c3e50; border-radius: 14px; padding: 22px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.25);
         }
         .card h2 { color: var(--deep); margin-bottom: 14px; letter-spacing: 0.5px; }
-        .boat-item, .beacon-item {
+        .boat-item, .beacon-item { 
             padding: 14px; margin: 10px 0; border-radius: 10px; background: #f6f7f8; border-left: 4px solid var(--sand);
         }
         .boat-item.in-harbor { border-left-color: var(--success); }
@@ -886,8 +1430,8 @@ class BoatTrackingSystem:
                     <tr>
                         <th>Boat</th>
                         <th>Status</th>
-                        <th>Time IN</th>
-                        <th>Time OUT</th>
+                        <th>Time IN SHED</th>
+                        <th>Time ON WATER</th>
                         <th>Last Seen</th>
                         <th>Signal</th>
                     </tr>
@@ -1024,7 +1568,8 @@ class BoatTrackingSystem:
                     <label style="display: block; margin-bottom: 5px; font-weight: bold; color: #2c3e50;">Serial Number:</label>
                     <input type="text" id="boatSerial" style="
                         width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 8px;
-                    " placeholder="e.g., RC-2024-001">
+                    " placeholder="e.g., RC-2024-001 (Optional - leave blank for old boats)">
+                    <small style="color: #666; font-size: 0.9rem;">Leave blank for boats without serial numbers</small>
                 </div>
                 
                 <div style="margin-bottom: 20px;">
@@ -1089,8 +1634,55 @@ class BoatTrackingSystem:
                 ">System Status</button>
                 <button onclick="refreshLogs()" style="
                     background: #6c757d; color: white; border: none; padding: 8px 16px; 
-                    border-radius: 20px; cursor: pointer;
+                    border-radius: 20px; cursor: pointer; margin-right: 10px;
                 ">Refresh</button>
+            </div>
+            
+            <!-- Log Export Section -->
+            <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6;">
+                <h3 style="margin: 0 0 15px 0; color: #2c3e50;">Export Logs</h3>
+                
+                <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+                    <button onclick="exportWeeklyLogs()" style="
+                        background: #17a2b8; color: white; border: none; padding: 8px 16px; 
+                        border-radius: 20px; cursor: pointer; font-weight: bold;
+                    ">Export Last Week</button>
+                    <button onclick="openCustomExport()" style="
+                        background: #6f42c1; color: white; border: none; padding: 8px 16px; 
+                        border-radius: 20px; cursor: pointer; font-weight: bold;
+                    ">Custom Date Range</button>
+                </div>
+                
+                <div id="customExportForm" style="display: none; margin-top: 15px;">
+                    <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+                        <div>
+                            <label style="display: block; font-weight: bold; margin-bottom: 5px; color: #2c3e50;">Start Date:</label>
+                            <input type="datetime-local" id="exportStartDate" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-weight: bold; margin-bottom: 5px; color: #2c3e50;">End Date:</label>
+                            <input type="datetime-local" id="exportEndDate" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-weight: bold; margin-bottom: 5px; color: #2c3e50;">Type:</label>
+                            <select id="exportType" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                                <option value="all">All Logs</option>
+                                <option value="errors">Errors Only</option>
+                                <option value="main">Main Logs</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button onclick="exportCustomLogs()" style="
+                            background: #28a745; color: white; border: none; padding: 8px 16px; 
+                            border-radius: 20px; cursor: pointer; font-weight: bold;
+                        ">Export</button>
+                        <button onclick="closeCustomExport()" style="
+                            background: #6c757d; color: white; border: none; padding: 8px 16px; 
+                            border-radius: 20px; cursor: pointer;
+                        ">Cancel</button>
+                    </div>
+                </div>
             </div>
             
             <div id="logContent" style="
@@ -1139,6 +1731,7 @@ class BoatTrackingSystem:
                     data.forEach(boat => {
                         const statusClass = boat.status === 'in_harbor' ? 'in-harbor' : 'out';
                         const statusBadge = boat.status === 'in_harbor' ? 'status-in-harbor' : 'status-out';
+                        const statusText = boat.status === 'in_harbor' ? 'IN SHED' : 'ON WATER';
                         const beaconInfo = boat.beacon ? 
                             `<div class=\"rssi-info\">Beacon: ${boat.beacon.mac_address}<br>Signal: ${rssiToPercent(boat.beacon.last_rssi)}% (${boat.beacon.last_rssi || 'N/A'} dBm)</div>` : 
                             '<div class="rssi-info">No beacon assigned</div>';
@@ -1147,7 +1740,7 @@ class BoatTrackingSystem:
                             <div class="boat-item ${statusClass}">
                                 <div>
                                     <strong>${boat.name}</strong> (${boat.class_type})
-                                    <span class="status-badge ${statusBadge}">${boat.status.replace('_', ' ').toUpperCase()}</span>
+                                    <span class="status-badge ${statusBadge}">${statusText}</span>
                                     ${boat.op_status ? `<span class="status-badge ${boat.op_status==='MAINTENANCE'?'status-unclaimed':'status-assigned'}">${boat.op_status}</span>` : ''}
                                 </div>
                                 ${beaconInfo}
@@ -1279,7 +1872,7 @@ class BoatTrackingSystem:
 
                 const rows = boats.map(b => {
                     const boatName = b.name;
-                    const status = b.status === 'in_harbor' ? '<span class="wb-status-in">IN SHED</span>' : '<span class="wb-status-out">OUT</span>';
+                    const status = b.status === 'in_harbor' ? '<span class="wb-status-in">IN SHED</span>' : '<span class="wb-status-out">ON WATER</span>';
                     // helpers
                     const formatNice = (iso) => {
                         if (!iso) return '—';
@@ -1391,7 +1984,7 @@ class BoatTrackingSystem:
                     // Only consider ASSIGNED beacons as "registered"; leave UNCLAIMED for discovery
                     data.forEach(beacon => {
                         if (beacon.status === 'assigned') {
-                            registeredBeacons.add(beacon.mac_address);
+                        registeredBeacons.add(beacon.mac_address);
                         }
                     });
                 })
@@ -1595,6 +2188,103 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
             // Default to main logs if no button is highlighted
             loadLogs('main');
         }
+        
+        // Log Export Functions
+        function exportWeeklyLogs() {
+            fetch('/api/logs/export/weekly', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.blob();
+                }
+                throw new Error('Export failed');
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `boat_tracking_weekly_logs_${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                alert('Weekly logs exported successfully!');
+            })
+            .catch(error => {
+                console.error('Export error:', error);
+                alert('Failed to export weekly logs: ' + error.message);
+            });
+        }
+        
+        function openCustomExport() {
+            document.getElementById('customExportForm').style.display = 'block';
+            
+            // Set default dates (last 7 days)
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - 7);
+            
+            document.getElementById('exportStartDate').value = startDate.toISOString().slice(0, 16);
+            document.getElementById('exportEndDate').value = endDate.toISOString().slice(0, 16);
+        }
+        
+        function closeCustomExport() {
+            document.getElementById('customExportForm').style.display = 'none';
+        }
+        
+        function exportCustomLogs() {
+            const startDate = document.getElementById('exportStartDate').value;
+            const endDate = document.getElementById('exportEndDate').value;
+            const exportType = document.getElementById('exportType').value;
+            
+            if (!startDate || !endDate) {
+                alert('Please select both start and end dates');
+                return;
+            }
+            
+            if (new Date(startDate) >= new Date(endDate)) {
+                alert('Start date must be before end date');
+                return;
+            }
+            
+            fetch('/api/logs/export', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    start_date: startDate,
+                    end_date: endDate,
+                    type: exportType
+                })
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.blob();
+                }
+                throw new Error('Export failed');
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `boat_tracking_logs_${startDate.replace(/[:\-T]/g, '')}_to_${endDate.replace(/[:\-T]/g, '')}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                alert('Custom logs exported successfully!');
+                closeCustomExport();
+            })
+            .catch(error => {
+                console.error('Export error:', error);
+                alert('Failed to export custom logs: ' + error.message);
+            });
+        }
     </script>
 </body>
 </html>
@@ -1677,48 +2367,6 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
 </html>
         """
 
-    def get_admin_html(self):
-        return """
-<!DOCTYPE html>
-<html lang=\"en\">
-<head>
-  <meta charset=\"utf-8\">
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
-  <title>Admin</title>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    .card { max-width: 480px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
-    .row { margin-bottom: 12px; }
-    input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; }
-    button { padding: 10px 16px; border: 0; border-radius: 6px; cursor: pointer; }
-    .primary { background: #007bff; color: white; }
-    .danger { background: #dc3545; color: white; }
-    .muted { color: #666; font-size: 0.9em; }
-  </style>
-  <script>
-    async function resetSystem() {
-      const user = document.getElementById('user').value.trim();
-      const pass = document.getElementById('pass').value.trim();
-      if (!user || !pass) { alert('Enter admin user and password'); return; }
-      try {
-        const resp = await fetch('/admin/reset', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({user, pass}) });
-        const text = await resp.text();
-        if (resp.ok) { alert('System reset complete'); } else { alert('Error: ' + text); }
-      } catch (e) { alert('Request failed: ' + e); }
-    }
-  </script>
-</head>
-<body>
-  <div class=\"card\">
-    <h2>Admin Login</h2>
-    <div class=\"row\"><input id=\"user\" placeholder=\"User ID\" value=\"admin\"></div>
-    <div class=\"row\"><input id=\"pass\" type=\"password\" placeholder=\"Password\" value=\"change_this_password\"></div>
-    <div class=\"row\"><button class=\"danger\" onclick=\"resetSystem()\">Reset: Clear all assignments and states</button></div>
-    <p class=\"muted\">This will unassign all beacons, clear states and detections. Use with care.</p>
-  </div>
-</body>
-</html>
-        """
 
     def get_admin_html(self):
         return """
@@ -1761,32 +2409,863 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
 </body></html>
         """
 
+    def get_fsm_viewer_html(self):
+        """Generate the FSM viewer page HTML."""
+        mermaid_diagram = """stateDiagram-v2
+    direction LR
+    [*] --> IDLE
+    state "INSIDE (ENTERED)" as ENTERED
+    state "OUTSIDE (EXITED)" as EXITED
+    state "OUT_PENDING (GOING_OUT)" as GOING_OUT
+    state "IN_PENDING (GOING_IN)" as GOING_IN
+
+    %% Baseline commits from IDLE
+    IDLE --> ENTERED: InnerStrong
+    IDLE --> EXITED: OuterStrong
+
+    %% Exit flow (shed -> inner -> outer -> water)
+    ENTERED --> GOING_OUT: InnerStrong && InnerWeakQ && !OuterTrendUp
+    GOING_OUT --> EXITED: OuterStrong && OuterWithin(last_inner_seen, w_pair_exit_s)
+    GOING_OUT --> ENTERED: InnerStrong && InnerWithin(last_outer_seen, w_pair_enter_s)
+    GOING_OUT --> ENTERED: pending_since > w_pair_exit_s
+
+    %% Enter flow (water -> outer -> inner -> shed)
+    EXITED --> GOING_IN: OuterStrong && InnerWeakQ && !OuterTrendUp
+    GOING_IN --> ENTERED: InnerStrong && InnerWithin(last_outer_seen, w_pair_enter_s)
+    GOING_IN --> EXITED: OuterStrong && OuterWithin(last_inner_seen, w_pair_exit_s)
+    GOING_IN --> EXITED: pending_since > w_pair_enter_s
+
+    %% Idle collapses when quiet
+    ENTERED --> IDLE: NoMovement >= t_idle_s
+    EXITED --> IDLE: NoMovement >= t_idle_long_s"""
+        
+        return """{% raw %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FSM Viewer</title>
+  <script>
+    // Dynamically load Mermaid with CDN fallbacks and expose a readiness promise
+    (function(){
+      const cdns = [
+        'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js',
+        'https://unpkg.com/mermaid@10/dist/mermaid.min.js'
+      ];
+      let idx = 0;
+      function tryLoad(resolve, reject){
+        if (window.mermaid){ resolve(); return; }
+        if (idx >= cdns.length){ reject(new Error('Mermaid failed to load')); return; }
+        const s = document.createElement('script');
+        s.src = cdns[idx++];
+        s.async = true;
+        s.onload = function(){ resolve(); };
+        s.onerror = function(){ tryLoad(resolve, reject); };
+        document.head.appendChild(s);
+      }
+      window.ensureMermaid = function(){
+        return new Promise((resolve,reject)=>{
+          if (window.mermaid){ resolve(); return; }
+          tryLoad(resolve, reject);
+        }).then(()=>{ try { window.mermaid.initialize({ startOnLoad: false, theme: 'dark' }); } catch(e){} });
+      }
+    })();
+  </script>
+  <style>
+    body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b1020; color:#f3f4f6; margin:0; }}
+    .header {{ display:flex; align-items:center; justify-content:space-between; padding:16px 20px; background:#111827; border-bottom:1px solid #374151; }}
+    .brand {{ display:flex; gap:10px; align-items:baseline; }}
+    .brand h1 {{ margin:0; color:#ef4444; letter-spacing:2px; }}
+    .btn {{ background:#ef4444; color:#fff; padding:8px 12px; border-radius:6px; text-decoration:none; }}
+    .container {{ max-width:1400px; margin:0 auto; padding:20px; }}
+    .grid {{ display:grid; grid-template-columns: 2fr 1fr; gap:20px; }}
+    .card {{ background:#111827; border:1px solid #374151; border-radius:12px; padding:16px; }}
+    table {{ width:100%; border-collapse:collapse; }}
+    th, td {{ text-align:left; padding:8px 10px; border-bottom:1px solid #374151; }}
+    .state {{ font-weight:600; }}
+    .st-IDLE {{ color:#9ca3af; }}
+    .st-SEEN_OUTER {{ color:#60a5fa; }}
+    .st-SEEN_INNER {{ color:#f59e0b; }}
+    .st-ENTERED {{ color:#34d399; }}
+    .st-EXITED {{ color:#f87171; }}
+    pre {{ white-space: pre-wrap; word-break: break-word; }}
+    
+    @keyframes flash {{
+      0% {{ background-color: #374151; }}
+      50% {{ background-color: #60a5fa; }}
+      100% {{ background-color: transparent; }}
+    }}
+    
+    @keyframes pulse {{
+      0%, 100% {{ opacity: 1; transform: scale(1); }}
+      50% {{ opacity: 0.7; transform: scale(1.05); }}
+    }}
+    
+    /* Enhanced SVG state styling */
+    #diagram { min-height: 520px; }
+    #diagram svg {{
+      width: 100%;
+      height: auto;
+    }}
+    
+    .fsm-active {{
+      animation: pulse 1.5s ease-in-out infinite;
+    }}
+  </style>
+  <script></script>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <h1>RED SHED</h1><span>FSM Viewer</span>
+    </div>
+    <div>
+      <a class="btn" href="/">← Dashboard</a>
+    </div>
+  </div>
+  <div class="container">
+    <div class="grid">
+      <div class="card">
+        <h2>Live FSM Animation</h2>
+        <div id="diagram"></div>
+        <div style="margin-top:10px; font-size:0.9em; color:#9ca3af;">
+          <span id="stateStats">Loading...</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Live States</h2>
+        <table>
+          <thead><tr><th>Boat</th><th>Beacon</th><th>MAC</th><th>State</th><th>Last Entry</th><th>Last Exit</th></tr></thead>
+          <tbody id="stateBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <script>
+    let currentStates = {{}};
+    let lastUpdate = 0;
+    
+    function createAnimatedMermaid(stateCounts) {{
+      // Create dynamic Mermaid matching current 5-state FSM
+      const idle = stateCounts.idle || 0;
+      const goingIn = stateCounts.going_in || 0;
+      const goingOut = stateCounts.going_out || 0;
+      const entered = stateCounts.entered || 0;
+      const exited = stateCounts.exited || 0;
+
+      let src = `stateDiagram-v2
+    direction LR
+    [*] --> IDLE
+    state "INSIDE (ENTERED)" as ENTERED
+    state "OUTSIDE (EXITED)" as EXITED
+    state "OUT_PENDING (GOING_OUT)" as GOING_OUT
+    state "IN_PENDING (GOING_IN)" as GOING_IN
+
+    IDLE --> ENTERED: InnerStrong
+    IDLE --> EXITED: OuterStrong
+
+    ENTERED --> GOING_OUT: InnerStrong && InnerWeakQ && !OuterTrendUp
+    GOING_OUT --> EXITED: OuterStrong && OuterWithin(last_inner_seen, w_pair_exit_s)
+    GOING_OUT --> ENTERED: InnerStrong && InnerWithin(last_outer_seen, w_pair_enter_s)
+    GOING_OUT --> ENTERED: pending_since > w_pair_exit_s
+
+    EXITED --> GOING_IN: OuterStrong && InnerWeakQ && !OuterTrendUp
+    GOING_IN --> ENTERED: InnerStrong && InnerWithin(last_outer_seen, w_pair_enter_s)
+    GOING_IN --> EXITED: OuterStrong && OuterWithin(last_inner_seen, w_pair_exit_s)
+    GOING_IN --> EXITED: pending_since > w_pair_enter_s
+
+    ENTERED --> IDLE: NoMovement >= t_idle_s
+    EXITED --> IDLE: NoMovement >= t_idle_long_s
+
+    classDef activeIdle fill:#6b7280,stroke:#9ca3af,stroke-width:3px
+    classDef activePending fill:#f59e0b,stroke:#f97316,stroke-width:4px
+    classDef activeEntered fill:#10b981,stroke:#059669,stroke-width:4px
+    classDef activeExited fill:#ef4444,stroke:#dc2626,stroke-width:4px
+    classDef pulsing fill:#3b82f6,stroke:#2563eb,stroke-width:5px
+    classDef inactive fill:#1f2937,stroke:#374151,stroke-width:1px`;
+
+      if (idle > 0) src += `\n    class IDLE activeIdle`;
+      if (goingOut > 0) src += `\n    class GOING_OUT ${goingOut > 2 ? 'pulsing' : 'activePending'}`;
+      if (goingIn > 0) src += `\n    class GOING_IN ${goingIn > 2 ? 'pulsing' : 'activePending'}`;
+      if (entered > 0) src += `\n    class ENTERED activeEntered`;
+      if (exited > 0) src += `\n    class EXITED activeExited`;
+
+      return src;
+    }}
+
+    function renderMermaid(stateCounts) {{
+      const src = createAnimatedMermaid(stateCounts);
+      if (!window.mermaid) {{
+        document.getElementById('diagram').innerText = 'Loading diagram engine…';
+        return;
+      }}
+      mermaid.render('fsmGraph' + Date.now(), src).then(({{ svg }}) => {{
+        document.getElementById('diagram').innerHTML = svg;
+        applyLiveStateColors(stateCounts);
+      }}).catch(err => {{
+        document.getElementById('diagram').innerText = 'Mermaid render error: ' + err;
+      }});
+    }}
+    
+    function applyLiveStateColors(stateCounts) {{
+      // Direct SVG manipulation for live state highlighting
+      setTimeout(() => {{
+        const diagram = document.getElementById('diagram');
+        if (!diagram) return;
+        
+        // Target Mermaid state diagram elements more specifically
+        const svg = diagram.querySelector('svg');
+        if (!svg) return;
+        
+        // Find all shapes (rectangles, circles) that represent states
+        const stateShapes = svg.querySelectorAll('rect, circle, ellipse, polygon');
+        const stateTexts = svg.querySelectorAll('text');
+        
+        // Create mapping of text content to shapes
+        stateTexts.forEach(text => {{
+          const textContent = text.textContent.trim().toUpperCase();
+          
+          // Find the associated shape (usually previous sibling or parent)
+          let shape = text.parentElement?.querySelector('rect, circle, ellipse, polygon');
+          if (!shape) {{
+            shape = text.previousElementSibling;
+          }}
+          if (!shape) {{
+            shape = text.parentElement?.previousElementSibling?.querySelector('rect, circle, ellipse, polygon');
+          }}
+          
+          if (shape) {{
+            shape.style.transition = 'all 0.5s ease';
+            
+            if (textContent.includes('IDLE') && stateCounts.idle > 0) {{
+              shape.style.fill = '#6b7280';
+              shape.style.stroke = '#9ca3af';
+              shape.style.strokeWidth = '3';
+            }}
+            else if (textContent.includes('SEEN_OUTER') && stateCounts.seen_outer > 0) {{
+              shape.style.fill = '#f59e0b';
+              shape.style.stroke = '#f97316';
+              shape.style.strokeWidth = '4';
+              if (stateCounts.seen_outer > 1) {{
+                shape.classList.add('fsm-active');
+              }}
+            }}
+            else if (textContent.includes('SEEN_INNER') && stateCounts.seen_inner > 0) {{
+              shape.style.fill = '#f59e0b';
+              shape.style.stroke = '#f97316';
+              shape.style.strokeWidth = '4';
+              if (stateCounts.seen_inner > 1) {{
+                shape.classList.add('fsm-active');
+              }}
+            }}
+            else if (textContent.includes('ENTERED') && stateCounts.entered > 0) {{
+              shape.style.fill = '#10b981';
+              shape.style.stroke = '#059669';
+              shape.style.strokeWidth = '5';
+              shape.classList.add('fsm-active');
+            }}
+            else if (textContent.includes('EXITED') && stateCounts.exited > 0) {{
+              shape.style.fill = '#ef4444';
+              shape.style.stroke = '#dc2626';
+              shape.style.strokeWidth = '5';
+              shape.classList.add('fsm-active');
+            }}
+            else {{
+              // Inactive state
+              shape.style.fill = '#1f2937';
+              shape.style.stroke = '#374151';
+              shape.style.strokeWidth = '1';
+              shape.classList.remove('fsm-active');
+            }}
+          }}
+        }});
+      }}, 200);
+    }}
+
+    async function loadStates() {{
+      try {{
+        const res = await fetch('/api/fsm-states');
+        const data = await res.json();
+        
+        // Count states for animation
+        const stateCounts = {{
+          idle: 0, seen_outer: 0, seen_inner: 0, both_seen: 0, entered: 0, exited: 0
+        }};
+        
+        data.forEach(r => {{
+          const state = (r.state || 'idle').toString().toLowerCase();
+          if (stateCounts.hasOwnProperty(state)) {{
+            stateCounts[state]++;
+          }}
+        }});
+        
+        // Update stats display with live counts
+        const total = data.length;
+        document.getElementById('stateStats').innerHTML = 
+          `🚤 ${{total}} boats | ⭕ IDLE: ${{stateCounts.idle}} | 🔵 OUTER: ${{stateCounts.seen_outer}} | 🟡 INNER: ${{stateCounts.seen_inner}} | 🟢 ENTERED: ${{stateCounts.entered}} | 🔴 EXITED: ${{stateCounts.exited}}`;
+        
+        // Only re-render diagram if state counts changed significantly
+        const stateKey = JSON.stringify(stateCounts);
+        if (window.lastStateKey !== stateKey) {{
+          renderMermaid(stateCounts);
+          window.lastStateKey = stateKey;
+        }} else {{
+          // Just update colors without full re-render
+          applyLiveStateColors(stateCounts);
+        }}
+        
+        // Update table with state change indicators
+        const tb = document.getElementById('stateBody');
+        tb.innerHTML = data.map(r => {{
+          const state = (r.state || '').toUpperCase();
+          const isRecentChange = currentStates[r.beacon_id] !== state;
+          currentStates[r.beacon_id] = state;
+          
+          return `
+          <tr ${{isRecentChange ? 'style="animation: flash 0.5s ease-in-out;"' : ''}}>
+            <td>${{r.boat_name || r.boat_id || '-'}}</td>
+            <td>${{r.beacon_id}}</td>
+            <td>${{r.mac_address || '-'}}</td>
+            <td class="state st-${{state}}">${{state}}</td>
+            <td>${{r.entry_timestamp || '-'}}</td>
+            <td>${{r.exit_timestamp || '-'}}</td>
+          </tr>
+          `;
+        }}).join('');
+      }} catch (e) {{
+        console.error(e);
+      }}
+    }}
+
+    // Initial render (wait for Mermaid to be ready first)
+    ensureMermaid().then(() => {{
+      // Render a baseline diagram immediately even before data arrives
+      renderMermaid({{ idle: 0, going_in: 0, going_out: 0, entered: 0, exited: 0, seen_outer: 0, seen_inner: 0 }});
+      loadStates();
+      setInterval(loadStates, 500);
+    }}).catch(() => {{
+      // Still poll states; when mermaid later available a refresh will draw
+      loadStates();
+      setInterval(loadStates, 500);
+    }});
+  </script>
+</body>
+</html>
+{% endraw %}""".replace("{{", "{").replace("}}", "}")
+
     def get_reports_html(self):
         return """
 <!DOCTYPE html>
-<html lang=\"en\">
+<html lang="en">
 <head>
-  <meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-  <title>Reports</title>
-  <style>body{font-family:Segoe UI,Tahoma,Verdana,sans-serif;background:#0b1b1e;color:#e9ecef;padding:24px} .card{background:#fff;color:#2c3e50;border-radius:12px;padding:18px;max-width:900px;margin:0 auto 18px auto;box-shadow:0 10px 30px rgba(0,0,0,.25)} input{padding:8px;border:1px solid #ccc;border-radius:6px} table{width:100%;border-collapse:collapse} th,td{border-bottom:1px solid #eee;padding:8px}</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boat Usage Reports</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Verdana, sans-serif;
+      background: linear-gradient(135deg, #0b1b1e 0%, #1a2a3a 100%);
+      color: #e9ecef;
+      padding: 24px;
+      margin: 0;
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    
+    .card {
+      background: #fff;
+      color: #2c3e50;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 15px 35px rgba(0,0,0,.3);
+      border: 1px solid #e0e6ed;
+    }
+    
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 2px solid #e9ecef;
+    }
+    
+    .header h1 {
+      margin: 0;
+      color: #2c3e50;
+      font-size: 28px;
+      font-weight: 600;
+    }
+    
+    .filters {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 12px;
+      border: 1px solid #e9ecef;
+    }
+    
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .filter-group label {
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #2c3e50;
+      font-size: 14px;
+    }
+    
+    .filter-group input,
+    .filter-group select {
+      padding: 12px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.3s ease;
+    }
+    
+    .filter-group input:focus,
+    .filter-group select:focus {
+      outline: none;
+      border-color: #007bff;
+      box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+    }
+    
+    .actions {
+      display: flex;
+      gap: 12px;
+      align-items: end;
+    }
+    
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-size: 14px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .btn-primary {
+      background: #007bff;
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: #0056b3;
+      transform: translateY(-1px);
+    }
+    
+    .btn-success {
+      background: #28a745;
+      color: white;
+    }
+    
+    .btn-success:hover {
+      background: #1e7e34;
+      transform: translateY(-1px);
+    }
+    
+    .btn-secondary {
+      background: #6c757d;
+      color: white;
+    }
+    
+    .btn-secondary:hover {
+      background: #545b62;
+      transform: translateY(-1px);
+    }
+    
+    .table-container {
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid #e9ecef;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+    }
+    
+    th {
+      background: #f8f9fa;
+      color: #2c3e50;
+      font-weight: 600;
+      padding: 16px 12px;
+      text-align: left;
+      border-bottom: 2px solid #e9ecef;
+      font-size: 14px;
+      position: sticky;
+      top: 0;
+    }
+    
+    td {
+      padding: 12px;
+      border-bottom: 1px solid #f1f3f4;
+      font-size: 14px;
+      vertical-align: middle;
+    }
+    
+    tr:hover {
+      background: #f8f9fa;
+    }
+    
+    .status-badge {
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    
+    .status-active {
+      background: #d4edda;
+      color: #155724;
+    }
+    
+    .status-retired {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    
+    .number-cell {
+      text-align: right;
+      font-weight: 600;
+    }
+    
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6c757d;
+      font-style: italic;
+    }
+    
+    .no-data {
+      text-align: center;
+      padding: 40px;
+      color: #6c757d;
+    }
+    
+    .quick-filters {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    
+    .quick-filter-btn {
+      padding: 8px 16px;
+      border: 1px solid #ddd;
+      background: white;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.3s ease;
+    }
+    
+    .quick-filter-btn:hover,
+    .quick-filter-btn.active {
+      background: #007bff;
+      color: white;
+      border-color: #007bff;
+    }
+  </style>
 </head>
 <body>
-  <div class=\"card\">
-    <h2>Usage Summary</h2>
-    <div style=\"display:flex;gap:8px;margin:8px 0;\">
-      <input id=\"from\" placeholder=\"From (ISO)\">
-      <input id=\"to\" placeholder=\"To (ISO)\">
-      <input id=\"boat\" placeholder=\"Boat ID (optional)\">
-      <button onclick=\"run()\">Run</button>
-      <a id=\"csv\" href=\"#\" style=\"margin-left:auto\">Export CSV</a>
+  <div class="container">
+    <div class="card">
+      <div class="header">
+        <h1>Boat Usage Reports</h1>
+        <div class="actions">
+          <button class="btn btn-success" onclick="exportData()">
+            Export CSV
+          </button>
+        </div>
+      </div>
+      
+      <div class="quick-filters">
+        <button class="quick-filter-btn active" onclick="setQuickFilter('today')">Today</button>
+        <button class="quick-filter-btn" onclick="setQuickFilter('yesterday')">Yesterday</button>
+        <button class="quick-filter-btn" onclick="setQuickFilter('week')">This Week</button>
+        <button class="quick-filter-btn" onclick="setQuickFilter('month')">This Month</button>
+        <button class="quick-filter-btn" onclick="setQuickFilter('all')">All Time</button>
+      </div>
+      
+      <div class="filters">
+        <div class="filter-group">
+          <label for="fromDate">From Date & Time</label>
+          <input type="datetime-local" id="fromDate" />
+        </div>
+        
+        <div class="filter-group">
+          <label for="toDate">To Date & Time</label>
+          <input type="datetime-local" id="toDate" />
+        </div>
+        
+        <div class="filter-group">
+          <label for="boatSelect">Boat (Optional)</label>
+          <select id="boatSelect">
+            <option value="">All Boats</option>
+          </select>
+        </div>
+        
+        <div class="filter-group">
+          <label for="statusFilter">Status Filter</label>
+          <select id="statusFilter">
+            <option value="">All Status</option>
+            <option value="ACTIVE">Active Only</option>
+            <option value="RETIRED">Retired Only</option>
+          </select>
+        </div>
+        
+        <div class="actions">
+          <button class="btn btn-primary" onclick="runReport()">
+            Generate Report
+          </button>
+          <button class="btn btn-secondary" onclick="clearFilters()">
+            Clear
+          </button>
+        </div>
+      </div>
+      
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Boat Name</th>
+              <th>Class</th>
+              <th>Status</th>
+              <th>Total Outings</th>
+              <th>Total Minutes</th>
+              <th>Avg Duration</th>
+              <th>Last Seen</th>
+              <th>Signal</th>
+            </tr>
+          </thead>
+          <tbody id="reportRows">
+            <tr>
+              <td colspan="8" class="loading">Loading boat data...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-container" style="margin-top:16px;" id="sessionsContainer" hidden>
+        <table>
+          <thead>
+            <tr>
+              <th colspan="4">Sessions (Exit→Enter) for Selected Boat and Date Range</th>
+            </tr>
+            <tr>
+              <th>Boat</th>
+              <th>Exit Time</th>
+              <th>Enter Time</th>
+              <th>Minutes</th>
+            </tr>
+          </thead>
+          <tbody id="sessionRows">
+            <tr><td colspan="4" class="no-data">Select a boat to view sessions</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
-    <table><thead><tr><th>Boat ID</th><th>Total Outings</th><th>Total Minutes</th></tr></thead><tbody id=\"rows\"></tbody></table>
   </div>
+
   <script>
-    async function run(){ const qs=new URLSearchParams(); if(from.value)qs.set('from',from.value); if(to.value)qs.set('to',to.value); if(boat.value)qs.set('boatId',boat.value); const res=await fetch('/api/reports/usage?'+qs.toString()); const data=await res.json(); rows.innerHTML=data.map(r=>`<tr><td>${r.boat_id}</td><td>${r.total_outings}</td><td>${r.total_minutes}</td></tr>`).join(''); csv.href='/api/reports/usage/export.csv?'+qs.toString(); }
-    run();
+    let boats = [];
+    let currentData = [];
+    
+    // Initialize page
+    document.addEventListener('DOMContentLoaded', function() {
+      loadBoats();
+      setQuickFilter('today');
+    });
+    
+    async function loadBoats() {
+      try {
+        const response = await fetch('/api/boats/list');
+        boats = await response.json();
+        
+        const select = document.getElementById('boatSelect');
+        select.innerHTML = '<option value="">All Boats</option>';
+        
+        boats.forEach(boat => {
+          const option = document.createElement('option');
+          option.value = boat.id;
+          option.textContent = boat.display_name;
+          select.appendChild(option);
+        });
+      } catch (error) {
+        console.error('Failed to load boats:', error);
+      }
+    }
+    
+    function setQuickFilter(period) {
+      // Update active button
+      document.querySelectorAll('.quick-filter-btn').forEach(btn => btn.classList.remove('active'));
+      event.target.classList.add('active');
+      
+      const now = new Date();
+      const fromDate = document.getElementById('fromDate');
+      const toDate = document.getElementById('toDate');
+      
+      switch(period) {
+        case 'today':
+          fromDate.value = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().slice(0, 16);
+          toDate.value = now.toISOString().slice(0, 16);
+          break;
+        case 'yesterday':
+          const yesterday = new Date(now);
+          yesterday.setDate(yesterday.getDate() - 1);
+          fromDate.value = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate()).toISOString().slice(0, 16);
+          toDate.value = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59).toISOString().slice(0, 16);
+          break;
+        case 'week':
+          const weekStart = new Date(now);
+          weekStart.setDate(now.getDate() - now.getDay());
+          fromDate.value = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate()).toISOString().slice(0, 16);
+          toDate.value = now.toISOString().slice(0, 16);
+          break;
+        case 'month':
+          fromDate.value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 16);
+          toDate.value = now.toISOString().slice(0, 16);
+          break;
+        case 'all':
+          fromDate.value = '';
+          toDate.value = '';
+          break;
+      }
+      
+      runReport();
+    }
+    
+    function clearFilters() {
+      document.getElementById('fromDate').value = '';
+      document.getElementById('toDate').value = '';
+      document.getElementById('boatSelect').value = '';
+      document.getElementById('statusFilter').value = '';
+      document.querySelectorAll('.quick-filter-btn').forEach(btn => btn.classList.remove('active'));
+      runReport();
+    }
+    
+    async function runReport() {
+      const fromDate = document.getElementById('fromDate').value;
+      const toDate = document.getElementById('toDate').value;
+      const boatId = document.getElementById('boatSelect').value;
+      const statusFilter = document.getElementById('statusFilter').value;
+      
+      const params = new URLSearchParams();
+      if (fromDate) params.set('from', fromDate);
+      if (toDate) params.set('to', toDate);
+      if (boatId) params.set('boatId', boatId);
+      // Ask API to include session details so we can show them if a boat is selected
+      params.set('includeSessions', '1');
+      
+      try {
+        document.getElementById('reportRows').innerHTML = '<tr><td colspan="8" class="loading">Loading report data...</td></tr>';
+        
+        const response = await fetch('/api/reports/usage?' + params.toString());
+        currentData = await response.json();
+        
+        // Apply status filter
+        if (statusFilter) {
+          currentData = currentData.filter(boat => boat.op_status === statusFilter);
+        }
+        
+        displayData(currentData);
+        displaySessions(currentData, boatId);
+      } catch (error) {
+        console.error('Failed to load report:', error);
+        document.getElementById('reportRows').innerHTML = '<tr><td colspan="8" class="no-data">Error loading report data</td></tr>';
+      }
+    }
+    
+    function displayData(data) {
+      const tbody = document.getElementById('reportRows');
+      
+      if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="no-data">No data found for the selected criteria</td></tr>';
+        return;
+      }
+      
+      tbody.innerHTML = data.map(boat => {
+        const lastSeen = boat.last_seen ? new Date(boat.last_seen).toLocaleString() : 'Never';
+        const signal = boat.last_rssi ? `${boat.last_rssi} dBm` : 'N/A';
+        const avgDuration = boat.avg_duration > 0 ? `${boat.avg_duration} min` : 'N/A';
+        
+        return `
+          <tr>
+            <td><strong>${boat.boat_name}</strong><br><small style="color: #6c757d;">${boat.boat_id}</small></td>
+            <td>${boat.boat_class}</td>
+            <td><span class="status-badge status-${boat.op_status.toLowerCase()}">${boat.op_status}</span></td>
+            <td class="number-cell">${boat.total_outings}</td>
+            <td class="number-cell">${boat.total_minutes} min</td>
+            <td class="number-cell">${avgDuration}</td>
+            <td><small>${lastSeen}</small></td>
+            <td><small>${signal}</small></td>
+          </tr>
+        `;
+      }).join('');
+    }
+    
+    function exportData() {
+      const fromDate = document.getElementById('fromDate').value;
+      const toDate = document.getElementById('toDate').value;
+      const boatId = document.getElementById('boatSelect').value;
+      
+      const params = new URLSearchParams();
+      if (fromDate) params.set('from', fromDate);
+      if (toDate) params.set('to', toDate);
+      if (boatId) params.set('boatId', boatId);
+      
+      const url = '/api/reports/usage/export.csv?' + params.toString();
+      window.open(url, '_blank');
+    }
+
+    function displaySessions(data, boatId) {
+      const container = document.getElementById('sessionsContainer');
+      const tbody = document.getElementById('sessionRows');
+      if (!boatId) {
+        container.hidden = true;
+        return;
+      }
+      const boat = data.find(b => b.boat_id === boatId);
+      if (!boat || !boat.sessions || boat.sessions.length === 0) {
+        container.hidden = false;
+        tbody.innerHTML = '<tr><td colspan="4" class="no-data">No sessions found in this range</td></tr>';
+        return;
+      }
+      container.hidden = false;
+      tbody.innerHTML = boat.sessions.map(s => {
+        const fmt = (iso) => new Date(iso).toLocaleString();
+        return `<tr>
+          <td>${boat.boat_name}</td>
+          <td>${fmt(s.start)}</td>
+          <td>${fmt(s.end)}</td>
+          <td class="number-cell">${s.minutes}</td>
+        </tr>`
+      }).join('');
+    }
   </script>
-</body></html>
+</body>
+</html>
         """
 
     def get_manage_html(self):
@@ -1991,8 +3470,8 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
 def get_default_config():
     """Get default configuration."""
     return {
-        # Explicit path under project data/ so runs are stable regardless of CWD
-        'database_path': 'data/boat_tracking.db',
+        # Use same default path as API server so both share one DB
+        'database_path': 'boat_tracking.db',
         'api_host': '0.0.0.0',
         'api_port': 8000,
         'web_host': '0.0.0.0',
@@ -2025,6 +3504,8 @@ def main():
         parser.add_argument("--api-port", type=int, default=8000, help="API server port")
         parser.add_argument("--web-port", type=int, default=5000, help="Web dashboard port")
         parser.add_argument("--db-path", default="data/boat_tracking.db", help="Database file path (relative paths stored under data/)")
+        parser.add_argument("--display-mode", choices=['web', 'terminal', 'both'], default='web', 
+                           help="Display mode: 'web' for web dashboard, 'terminal' for HDMI display, 'both' for both")
         
         args = parser.parse_args()
         
@@ -2041,7 +3522,7 @@ def main():
                     except OSError:
                         port += 1
             return preferred
-
+        
         # Load configuration
         config = get_default_config()
         if args.config:
@@ -2055,9 +3536,10 @@ def main():
         config['database_path'] = args.db_path
         
         logger.info(f"Starting Boat Tracking System with config: {config}", "MAIN")
+        logger.info(f"Display mode: {args.display_mode}", "MAIN")
         
         # Create and start system
-        system = BoatTrackingSystem(config)
+        system = BoatTrackingSystem(config, args.display_mode)
         
         try:
             system.start()
@@ -2070,7 +3552,7 @@ def main():
         except KeyboardInterrupt:
             logger.info("Shutdown requested by user", "MAIN")
             system.stop()
-            
+                    
     except Exception as e:
         logger.critical(f"Fatal error in main: {e}", "MAIN", e)
         print(f"Fatal error: {e}")

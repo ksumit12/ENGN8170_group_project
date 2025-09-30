@@ -31,7 +31,7 @@ def _not_found(msg: str) -> Tuple[int, Dict[str, Any]]:
 
 def register_beacon(db: DatabaseManager, data: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
     """Register a beacon to a boat with robust validation and conflict detection.
-    Expected data: mac_address, name(optional display), boat_name, boat_class, boat_serial, boat_brand?, boat_notes?
+    Expected data: mac_address, name(optional display), boat_name, boat_class, boat_serial(optional), boat_brand?, boat_notes?
     """
     mac = (data.get("mac_address") or "").strip()
     boat_name = (data.get("boat_name") or "").strip()
@@ -39,14 +39,20 @@ def register_beacon(db: DatabaseManager, data: Dict[str, Any]) -> Tuple[int, Dic
     boat_serial = (data.get("boat_serial") or "").strip()
     disp_name = (data.get("name") or "").strip()
 
+    # Required fields (serial is now optional)
     missing = [k for k, v in {
         "mac_address": mac,
         "boat_name": boat_name,
         "boat_class": boat_class,
-        "boat_serial": boat_serial,
     }.items() if not v]
     if missing:
-        return _bad_request(f"Missing fields: {', '.join(missing)}")
+        return _bad_request(f"Missing required fields: {', '.join(missing)}")
+    
+    # Generate boat ID if serial not provided
+    if not boat_serial:
+        # Generate unique ID based on boat name and timestamp
+        import time
+        boat_serial = f"{boat_name.replace(' ', '_').lower()}_{int(time.time())}"
 
     # Check if beacon exists and is available
     beacon = db.get_beacon_by_mac(mac)
@@ -70,19 +76,37 @@ def register_beacon(db: DatabaseManager, data: Dict[str, Any]) -> Tuple[int, Dic
         except Exception as e:
             return _bad_request(f"Could not update boat: {e}")
     else:
-        # Check for boat name conflicts (different serial, same name)
+        # Check for boat name conflicts - only check ACTIVE boats
         all_boats = db.get_all_boats()
+        active_boat_with_same_name = None
         for boat in all_boats:
             if boat.name == boat_name and boat.id != boat_serial:
-                return _conflict(f"Boat name '{boat_name}' is already used by boat with serial '{boat.id}'. Use a different name or serial number.")
+                # Check if boat is active (not retired)
+                op_status = getattr(boat, 'op_status', 'ACTIVE')
+                if op_status == 'ACTIVE':
+                    active_boat_with_same_name = boat
+                    break
+        
+        if active_boat_with_same_name:
+            return _conflict(f"Boat name '{boat_name}' is already used by an active boat (ID: {active_boat_with_same_name.id}). Please retire the old boat first or use a different name.")
         
         # Create new boat
         try:
+            notes_parts = []
+            if boat_serial and not boat_serial.startswith(boat_name.replace(' ', '_').lower()):
+                notes_parts.append(f"Serial: {boat_serial}")
+            if data.get('boat_brand'):
+                notes_parts.append(f"Brand: {data.get('boat_brand')}")
+            if data.get('boat_notes'):
+                notes_parts.append(data.get('boat_notes'))
+            
+            notes = ", ".join(notes_parts) if notes_parts else "Auto-generated ID"
+            
             db.create_boat(
                 boat_id=boat_serial,
                 name=boat_name,
                 class_type=boat_class,
-                notes=f"Serial: {boat_serial}, Brand: {data.get('boat_brand','N/A')}, {data.get('boat_notes','')}"
+                notes=notes
             )
         except Exception as e:
             return _bad_request(f"Could not create boat: {e}")

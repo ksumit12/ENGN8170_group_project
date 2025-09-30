@@ -14,7 +14,8 @@ import threading
 import time
 
 from app.database_models import DatabaseManager, Boat, Beacon, BoatBeaconAssignment, DetectionState, BoatStatus
-from app.entry_exit_fsm import EntryExitFSM, FSMState
+from app.fsm_engine import build_fsm_engine, IFSMEngine
+from app.entry_exit_fsm import FSMState
 from app.logging_config import get_logger
 
 # Use the system logger
@@ -28,10 +29,13 @@ class APIServer:
         CORS(self.app)
         
         self.db = DatabaseManager(db_path)
-        self.fsm = EntryExitFSM(
+        # Build pluggable FSM engine
+        self.fsm: IFSMEngine = build_fsm_engine(
             db_manager=self.db,
             outer_scanner_id=outer_scanner_id,
-            inner_scanner_id=inner_scanner_id
+            inner_scanner_id=inner_scanner_id,
+            rssi_threshold=-80,
+            hysteresis=10,
         )
         
         self.setup_routes()
@@ -432,8 +436,24 @@ class APIServer:
                         # Check if beacon was seen recently
                         is_recently_seen = last_seen_dt and (datetime.now(timezone.utc) - last_seen_dt).total_seconds() <= window_seconds
 
-                        # Optional two-switch logic: require both recency and FSM ENTERED for IN; for OUT require not ENTERED and not recent
-                        if two_switch:
+                        # Prefer explicit FSM state if available; default to IN_HARBOR on fresh systems
+                        preferred_status = None
+                        try:
+                            fsm_state = self.fsm.get_beacon_state(beacon.id)
+                            if fsm_state == FSMState.ENTERED:
+                                preferred_status = BoatStatus.IN_HARBOR
+                            elif fsm_state == FSMState.EXITED:
+                                preferred_status = BoatStatus.OUT
+                            elif fsm_state == FSMState.IDLE and last_seen_dt is None:
+                                # Fresh install: treat IDLE + never-seen as in shed
+                                preferred_status = BoatStatus.IN_HARBOR
+                        except Exception:
+                            preferred_status = None
+
+                        new_status = preferred_status
+
+                        # Optional two-switch logic: only if FSM didn't dictate above
+                        if new_status is None and two_switch:
                             fsm_state = self.fsm.get_beacon_state(beacon.id)
                             in_cond = bool(is_recently_seen) and fsm_state == FSMState.ENTERED
                             out_cond = (not is_recently_seen) and fsm_state != FSMState.ENTERED
@@ -465,7 +485,8 @@ class APIServer:
                                     new_status = BoatStatus.IN_HARBOR if in_cond else (BoatStatus.OUT if out_cond else boat.status)
                             else:
                                 new_status = BoatStatus.IN_HARBOR if in_cond else (BoatStatus.OUT if out_cond else boat.status)
-                        else:
+
+                        if new_status is None:
                             # Default: recency-only heuristic (single-scanner friendly)
                             new_status = BoatStatus.IN_HARBOR if is_recently_seen else BoatStatus.OUT
                         

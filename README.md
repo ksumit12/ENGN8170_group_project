@@ -23,13 +23,16 @@ pip install -r requirements.txt
 ##  ONE COMMAND SETUP (Fresh RPi)
 
 ```bash
-# 1. Clone and setup everything
+# 1. Activate virtual environment (FIRST STEP after SSH)
+source .venv/bin/activate
+
+# 2. Clone and setup everything
 git clone https://github.com/ksumit12/ENGN8170_group_project.git
 cd ENGN8170_group_project
 chmod +x setup_rpi.sh
 ./setup_rpi.sh
 
-# 2. Start the system
+# 3. Start the system
 ./start_system.sh
 ```
 
@@ -39,11 +42,25 @@ chmod +x setup_rpi.sh
 
 ### Local Development
 ```bash
+# 1. Activate virtual environment
+source .venv/bin/activate
+
+# 2. Run the system (web dashboard)
 python3 boat_tracking_system.py --api-port 8000 --web-port 5000
+
+# 2. Run with terminal display (HDMI monitor)
+python3 boat_tracking_system.py --display-mode terminal
+
+# 2. Run with both web and terminal display
+python3 boat_tracking_system.py --display-mode both --api-port 8000 --web-port 5000
 ```
 
 ### Public Access
 ```bash
+# 1. Activate virtual environment
+source .venv/bin/activate
+
+# 2. Start the system
 ./start_system.sh
 ```
 
@@ -52,6 +69,10 @@ python3 boat_tracking_system.py --api-port 8000 --web-port 5000
 Initialize the database and sample data:
 
 ```bash
+# 1. Activate virtual environment
+source .venv/bin/activate
+
+# 2. Initialize database
 python3 setup_new_system.py
 ```
 
@@ -64,16 +85,31 @@ This creates `boat_tracking.db` with sample boats and beacons for testing.
 Starts API server, two scanners (inner/outer), and the web dashboard.
 
 ```bash
+# 1. Activate virtual environment
+source .venv/bin/activate
+
+# 2. Run the system (web dashboard)
 python3 boat_tracking_system.py
+
+# 2. Run with terminal display (HDMI monitor)
+python3 boat_tracking_system.py --display-mode terminal
+
+# 2. Run with both web and terminal display
+python3 boat_tracking_system.py --display-mode both
 ```
 
 Defaults:
 - API Server: http://localhost:8000
-- Web Dashboard: http://localhost:5000
+- Web Dashboard: http://localhost:5000 (when display-mode is 'web' or 'both')
+- Terminal Display: Active on HDMI output (when display-mode is 'terminal' or 'both')
 
 You can also override ports:
 
 ```bash
+# 1. Activate virtual environment
+source .venv/bin/activate
+
+# 2. Run with custom ports
 python3 boat_tracking_system.py --api-port 8001 --web-port 5001
 ```
 
@@ -82,12 +118,20 @@ python3 boat_tracking_system.py --api-port 8001 --web-port 5001
 API server only:
 
 ```bash
+# 1. Activate virtual environment
+source .venv/bin/activate
+
+# 2. Run API server
 python3 api_server.py --port 8000
 ```
 
 Scanner (run one per scanner location):
 
 ```bash
+# 1. Activate virtual environment
+source .venv/bin/activate
+
+# 2. Run scanners
 python3 ble_scanner.py --scanner-id gate-outer --server-url http://localhost:8000
 python3 ble_scanner.py --scanner-id gate-inner --server-url http://localhost:8000
 ```
@@ -101,12 +145,54 @@ python3 ble_scanner.py --scanner-id gate-inner --server-url http://localhost:800
 
 The beacon is assigned to the boat and appears on the dashboard and in the API.
 
+## Display Modes
+
+The system supports multiple display options for different use cases:
+
+### Web Dashboard (Default)
+- **Mode**: `--display-mode web` (default)
+- **Access**: Browser at http://localhost:5000
+- **Features**: Full interactive dashboard with boat management, beacon registration, logs
+- **Best for**: Remote access, management tasks, detailed monitoring
+
+### Terminal Display (HDMI Monitor)
+- **Mode**: `--display-mode terminal`
+- **Access**: Direct HDMI output on Raspberry Pi
+- **Features**: 
+  - Real-time boat status board with color-coded status indicators
+  - Automatic updates every 3 seconds
+  - Boat name, class, status, last seen time, signal strength
+  - Currently in shed summary
+  - System status information
+  - Clean, readable format optimized for monitors
+- **Best for**: Headless RPi with HDMI monitor, simple status display, kiosk mode
+
+### Both Modes
+- **Mode**: `--display-mode both`
+- **Access**: Web dashboard + HDMI terminal display simultaneously
+- **Features**: Full web functionality + live terminal display
+- **Best for**: RPi with monitor + remote access, comprehensive monitoring
+
+### Usage Examples
+
+```bash
+# Web dashboard only (default)
+python3 boat_tracking_system.py
+
+# Terminal display only (HDMI monitor)
+python3 boat_tracking_system.py --display-mode terminal
+
+# Both web and terminal display
+python3 boat_tracking_system.py --display-mode both --api-port 8000 --web-port 5000
+```
+
 ## Features
 
 - iBeacon-only filtering at the scanner level (Apple manufacturer data 0x004C, subtype 0x02 0x15)
 - Beacon discovery and registration workflow
 - One active beacon per boat enforced by the database
 - Presence summary and recent detections
+- Multiple display modes (web, terminal, both)
 
 ## REST API (selected)
 
@@ -184,6 +270,11 @@ grp_project/
 - **No beacons listed**: ensure your device is broadcasting iBeacon frames
 - **Network access issues**: use `./tools/network/get_ip.py` to get RPi IP and `./tools/network/configure_firewall.sh` to configure firewall
 - **BLE range testing**: use `./tools/ble_testing/scanner_range_test.py` to test dongle range
+- **Terminal display issues**: 
+  - Ensure HDMI monitor is connected and powered on
+  - Check that display mode is set correctly: `--display-mode terminal`
+  - For headless RPi, ensure HDMI output is enabled in `/boot/config.txt`
+  - Terminal display updates every 3 seconds - be patient if data appears delayed
 
 ## Development Notes
 
@@ -231,10 +322,18 @@ Create a file `scanner_config.json`:
 ### Run
 - Start API/UI (on RPi):
 ```bash
+# 1. Activate virtual environment
+source .venv/bin/activate
+
+# 2. Start API/UI
 python3 boat_tracking_system.py --api-port 8000 --web-port 5000
 ```
 - Start hardware daemon (same host):
 ```bash
+# 1. Activate virtual environment
+source .venv/bin/activate
+
+# 2. Start scanner service
 python3 scanner_service.py --config system/json/scanner_config.json
 ```
 

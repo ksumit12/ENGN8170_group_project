@@ -31,7 +31,7 @@ def main():
         thr_rows.append({"boats": n, "events_per_sec": ev})
         acc = []
         for b, g in big.groupby("beacon"):
-            Gt = (g.gt == "OUTSIDE").astype(int).values
+            Gt = (g["gt"] == "OUTSIDE").astype(int).values
             Pd = (g.state == "OUTSIDE").astype(int).values
             inter = int(((Gt == 1) & (Pd == 1)).sum())
             union = int(((Gt == 1) | (Pd == 1)).sum())

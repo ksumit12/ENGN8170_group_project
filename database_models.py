@@ -500,10 +500,24 @@ class DatabaseManager:
             cursor.execute("SELECT * FROM beacons WHERE mac_address = ?", (mac_address,))
             row = cursor.fetchone()
             if row:
-                # Parse datetime strings
-                last_seen = datetime.fromisoformat(row[4]) if row[4] and isinstance(row[4], str) else row[4]
-                created_at = datetime.fromisoformat(row[6]) if isinstance(row[6], str) else row[6]
-                updated_at = datetime.fromisoformat(row[7]) if isinstance(row[7], str) else row[7]
+                # Parse datetime strings and ensure timezone awareness
+                last_seen = row[4]
+                if last_seen and isinstance(last_seen, str):
+                    last_seen = datetime.fromisoformat(last_seen)
+                if last_seen and last_seen.tzinfo is None:
+                    last_seen = last_seen.replace(tzinfo=timezone.utc)
+                
+                created_at = row[6]
+                if isinstance(created_at, str):
+                    created_at = datetime.fromisoformat(created_at)
+                if created_at and created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                
+                updated_at = row[7]
+                if isinstance(updated_at, str):
+                    updated_at = datetime.fromisoformat(updated_at)
+                if updated_at and updated_at.tzinfo is None:
+                    updated_at = updated_at.replace(tzinfo=timezone.utc)
                 
                 return Beacon(
                     id=row[0], mac_address=row[1], name=row[2], status=BeaconStatus(row[3]),
@@ -518,10 +532,24 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM beacons ORDER BY mac_address")
             for row in cursor.fetchall():
-                # Parse datetime strings
-                last_seen = datetime.fromisoformat(row[4]) if row[4] and isinstance(row[4], str) else row[4]
-                created_at = datetime.fromisoformat(row[6]) if isinstance(row[6], str) else row[6]
-                updated_at = datetime.fromisoformat(row[7]) if isinstance(row[7], str) else row[7]
+                # Parse datetime strings and ensure timezone awareness
+                last_seen = row[4]
+                if last_seen and isinstance(last_seen, str):
+                    last_seen = datetime.fromisoformat(last_seen)
+                if last_seen and last_seen.tzinfo is None:
+                    last_seen = last_seen.replace(tzinfo=timezone.utc)
+                
+                created_at = row[6]
+                if isinstance(created_at, str):
+                    created_at = datetime.fromisoformat(created_at)
+                if created_at and created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                
+                updated_at = row[7]
+                if isinstance(updated_at, str):
+                    updated_at = datetime.fromisoformat(updated_at)
+                if updated_at and updated_at.tzinfo is None:
+                    updated_at = updated_at.replace(tzinfo=timezone.utc)
                 
                 beacons.append(Beacon(
                     id=row[0], mac_address=row[1], name=row[2], status=BeaconStatus(row[3]),
@@ -621,10 +649,24 @@ class DatabaseManager:
             """, (boat_id,))
             row = cursor.fetchone()
             if row:
-                # Parse datetime strings
-                last_seen = datetime.fromisoformat(row[4]) if row[4] and isinstance(row[4], str) else row[4]
-                created_at = datetime.fromisoformat(row[6]) if isinstance(row[6], str) else row[6]
-                updated_at = datetime.fromisoformat(row[7]) if isinstance(row[7], str) else row[7]
+                # Parse datetime strings and ensure timezone awareness
+                last_seen = row[4]
+                if last_seen and isinstance(last_seen, str):
+                    last_seen = datetime.fromisoformat(last_seen)
+                if last_seen and last_seen.tzinfo is None:
+                    last_seen = last_seen.replace(tzinfo=timezone.utc)
+                
+                created_at = row[6]
+                if isinstance(created_at, str):
+                    created_at = datetime.fromisoformat(created_at)
+                if created_at and created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                
+                updated_at = row[7]
+                if isinstance(updated_at, str):
+                    updated_at = datetime.fromisoformat(updated_at)
+                if updated_at and updated_at.tzinfo is None:
+                    updated_at = updated_at.replace(tzinfo=timezone.utc)
                 return Beacon(
                     id=row[0], mac_address=row[1], name=row[2], status=BeaconStatus(row[3]),
                     last_seen=last_seen, last_rssi=row[5], created_at=created_at, updated_at=updated_at, notes=row[8]
