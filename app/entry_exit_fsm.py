@@ -63,8 +63,8 @@ class EntryExitFSM:
         self.confirm_window_s = confirm_window_s
         self.absent_timeout_s = absent_timeout_s
         self.alpha = alpha
-        # Ignore very weak tails to avoid false flips
-        self.rssi_floor_dbm = -72
+        # Ignore very weak tails to avoid false flips (raise floor to reduce flapping)
+        self.rssi_floor_dbm = -70
         # Quick-weak timeout so we don't wait full absent_timeout to begin exit
         self.weak_timeout_s = 3.0
         # FSM timing parameters aligned with diagram
