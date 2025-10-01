@@ -262,6 +262,26 @@ class DatabaseManager:
             except Exception:
                 pass
 
+            # Boat trips table for tracking water time and usage analytics
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS boat_trips (
+                    id TEXT PRIMARY KEY,
+                    boat_id TEXT NOT NULL,
+                    beacon_id TEXT NOT NULL,
+                    exit_time TIMESTAMP NOT NULL,
+                    entry_time TIMESTAMP,
+                    duration_minutes INTEGER,
+                    trip_date DATE NOT NULL,
+                    created_at TIMESTAMP NOT NULL,
+                    FOREIGN KEY (boat_id) REFERENCES boats (id),
+                    FOREIGN KEY (beacon_id) REFERENCES beacons (id)
+                )
+            """)
+            
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_trips_boat ON boat_trips (boat_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_trips_date ON boat_trips (trip_date)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_trips_boat_date ON boat_trips (boat_id, trip_date)")
+            
             # Audit log for administrative actions
             cursor.execute(
                 """
@@ -293,10 +313,10 @@ class DatabaseManager:
             cursor.execute("""
                 INSERT INTO boats (id, name, class_type, status, created_at, updated_at, notes)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (boat_id, name, class_type, BoatStatus.UNKNOWN.value, now, now, notes))
+            """, (boat_id, name, class_type, BoatStatus.IN_HARBOR.value, now, now, notes))
             conn.commit()
         
-        return Boat(boat_id, name, class_type, BoatStatus.UNKNOWN, now, now, notes)
+        return Boat(boat_id, name, class_type, BoatStatus.IN_HARBOR, now, now, notes)
     
     def get_boat(self, boat_id: str) -> Optional[Boat]:
         """Get boat by ID."""
@@ -510,7 +530,7 @@ class DatabaseManager:
                 # Update existing beacon
                 beacon_id = existing[0]
                 cursor.execute("""
-                    UPDATE beacons SET last_seen = ?, last_rssi = ?, updated_at = ?
+                    UPDATE beacons SET last_seen = COALESCE(?, last_seen), last_rssi = ?, updated_at = ?
                     WHERE mac_address = ?
                 """, (now, rssi, now, mac_address))
             else:
@@ -518,7 +538,7 @@ class DatabaseManager:
                 beacon_id = f"BC{int(now.timestamp() * 1000)}"
                 cursor.execute("""
                     INSERT INTO beacons (id, mac_address, name, status, last_seen, last_rssi, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)
                 """, (beacon_id, mac_address, name, BeaconStatus.UNCLAIMED.value, now, rssi, now, now))
             
             conn.commit()
@@ -824,6 +844,140 @@ class DatabaseManager:
         return boats_in_harbor
 
     # Administrative operations
+    # -------- Boat Trip Tracking --------
+    def start_trip(self, boat_id: str, beacon_id: str, exit_time: datetime) -> str:
+        """Start a new trip when boat exits to water."""
+        import uuid
+        trip_id = str(uuid.uuid4())
+        trip_date = exit_time.date()
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO boat_trips 
+                (id, boat_id, beacon_id, exit_time, trip_date, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (trip_id, boat_id, beacon_id, exit_time, trip_date, exit_time))
+            conn.commit()
+        
+        return trip_id
+    
+    def end_trip(self, boat_id: str, beacon_id: str, entry_time: datetime):
+        """End the most recent trip when boat returns."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            # Find the most recent open trip (no entry_time) for this boat/beacon
+            cursor.execute("""
+                SELECT id, exit_time FROM boat_trips
+                WHERE boat_id = ? AND beacon_id = ? AND entry_time IS NULL
+                ORDER BY exit_time DESC
+                LIMIT 1
+            """, (boat_id, beacon_id))
+            
+            row = cursor.fetchone()
+            if row:
+                trip_id, exit_time = row
+                if isinstance(exit_time, str):
+                    exit_time = datetime.fromisoformat(exit_time)
+                
+                # Calculate duration in minutes
+                duration = int((entry_time - exit_time).total_seconds() / 60)
+                
+                cursor.execute("""
+                    UPDATE boat_trips
+                    SET entry_time = ?, duration_minutes = ?
+                    WHERE id = ?
+                """, (entry_time, duration, trip_id))
+                conn.commit()
+                
+                return trip_id, duration
+        
+        return None, 0
+    
+    def get_boat_water_time_today(self, boat_id: str) -> int:
+        """Get total minutes on water today for a boat."""
+        today = datetime.now(timezone.utc).date()
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT SUM(duration_minutes) FROM boat_trips
+                WHERE boat_id = ? AND trip_date = ? AND duration_minutes IS NOT NULL
+            """, (boat_id, today))
+            
+            row = cursor.fetchone()
+            return row[0] if row and row[0] else 0
+    
+    def get_boat_trip_history(self, boat_id: str, days: int = 30) -> List[Dict]:
+        """Get trip history for a boat."""
+        cutoff_date = (datetime.now(timezone.utc) - __import__('datetime').timedelta(days=days)).date()
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    id, exit_time, entry_time, duration_minutes, trip_date
+                FROM boat_trips
+                WHERE boat_id = ? AND trip_date >= ?
+                ORDER BY exit_time DESC
+            """, (boat_id, cutoff_date))
+            
+            trips = []
+            for row in cursor.fetchall():
+                trips.append({
+                    'id': row[0],
+                    'exit_time': row[1],
+                    'entry_time': row[2],
+                    'duration_minutes': row[3],
+                    'trip_date': row[4]
+                })
+            
+            return trips
+    
+    def get_boat_usage_stats(self, boat_id: str = None) -> List[Dict]:
+        """Get usage statistics for boat(s) - total trips and hours."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            if boat_id:
+                query = """
+                    SELECT 
+                        b.id, b.name, b.class_type,
+                        COUNT(t.id) as total_trips,
+                        COALESCE(SUM(t.duration_minutes), 0) as total_minutes
+                    FROM boats b
+                    LEFT JOIN boat_trips t ON b.id = t.boat_id
+                    WHERE b.id = ?
+                    GROUP BY b.id
+                """
+                cursor.execute(query, (boat_id,))
+            else:
+                query = """
+                    SELECT 
+                        b.id, b.name, b.class_type,
+                        COUNT(t.id) as total_trips,
+                        COALESCE(SUM(t.duration_minutes), 0) as total_minutes
+                    FROM boats b
+                    LEFT JOIN boat_trips t ON b.id = t.boat_id
+                    GROUP BY b.id
+                    ORDER BY total_minutes DESC
+                """
+                cursor.execute(query)
+            
+            stats = []
+            for row in cursor.fetchall():
+                total_hours = row[4] / 60.0 if row[4] else 0
+                stats.append({
+                    'boat_id': row[0],
+                    'boat_name': row[1],
+                    'class_type': row[2],
+                    'total_trips': row[3],
+                    'total_minutes': row[4],
+                    'total_hours': round(total_hours, 2)
+                })
+            
+            return stats
+
     def reset_all(self) -> None:
         """Reset all beacon assignments and states.
 
@@ -849,7 +1003,7 @@ class DatabaseManager:
             cursor.execute(
                 """
                 UPDATE beacons
-                SET status = ?, updated_at = ?
+                SET status = ?, last_seen = NULL, last_rssi = NULL, updated_at = ?
                 """,
                 (BeaconStatus.UNCLAIMED.value, now)
             )

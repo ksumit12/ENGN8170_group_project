@@ -122,8 +122,9 @@ def register_beacon(db: DatabaseManager, data: Dict[str, Any]) -> Tuple[int, Dic
     if not db.assign_beacon_to_boat(beacon.id, boat_serial):
         return _conflict("Assignment failed: boat or beacon already assigned. Unassign first.")
 
+    # Set boat status to IN_SHED (boats start inside) instead of IN_HARBOR/OUT
     try:
-        db.update_boat_status(boat_serial, BoatStatus.IN_HARBOR)
+        db.update_boat_status(boat_serial, BoatStatus.IN_SHED)
     except Exception:
         pass
 

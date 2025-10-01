@@ -208,6 +208,7 @@ def main():
         else:
             # Update existing boat with detailed notes
             db.update_boat(boat.id, notes=boat_details["notes"])
+            db.update_boat_status(boat.id, __import__('app.database_models', fromlist=['BoatStatus']).BoatStatus.IN_HARBOR)
             print(f"🔄 Updated: {boat_details['name']} ({boat_details['class_type']})")
         
         boats.append((boat, boat_details))

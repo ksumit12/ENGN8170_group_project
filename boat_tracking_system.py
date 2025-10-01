@@ -344,6 +344,13 @@ class BoatTrackingSystem:
                     entry_ts = None
                     exit_ts = None
                 
+                # Get water time today for this boat
+                water_time_today = 0
+                try:
+                    water_time_today = self.db.get_boat_water_time_today(boat.id)
+                except Exception:
+                    pass
+                
                 result.append({
                     'id': boat.id,
                     'name': boat.name,
@@ -353,6 +360,7 @@ class BoatTrackingSystem:
                     'status_updated_at': getattr(boat, 'status_updated_at', None),
                     'last_entry': (entry_ts.isoformat() if hasattr(entry_ts, 'isoformat') else entry_ts) if entry_ts else None,
                     'last_exit': (exit_ts.isoformat() if hasattr(exit_ts, 'isoformat') else exit_ts) if exit_ts else None,
+                    'water_time_today_minutes': water_time_today,
                     'beacon': {
                         'id': beacon.id if beacon else None,
                         'mac_address': beacon.mac_address if beacon else None,

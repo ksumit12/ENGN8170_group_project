@@ -289,16 +289,12 @@ def main():
     print("Press Ctrl+C to stop.\n")
     log("sim_start", boats=len(boat_beacons))
     
-    # Ensure all boats start ENTERED by sending a brief inner detection burst
-    for boat_id, beacon_mac in boat_beacons:
-        for rssi in _rssi_series(-64, -52, 3):
-            send_detection_to_api("gate-inner", beacon_mac, rssi, "http://127.0.0.1:8000", log)
-            _sleep_jitter(0.3, 0.5)
+    # Boats start in IDLE - no initialization needed
 
     # Per-boat cooldown tracker: boat_id -> epoch seconds when next simulation is allowed
     cooldown_until = {boat_id: 0.0 for boat_id, _ in boat_beacons}
-    # Track rough state for scheduling (not authoritative)
-    approx_state = {boat_id: "entered" for boat_id, _ in boat_beacons}
+    # Track rough state for scheduling (not authoritative) - all boats start in IDLE
+    approx_state = {boat_id: "idle" for boat_id, _ in boat_beacons}
     # Per-boat episode lock to prevent overlapping intents
     active_episode = {boat_id: False for boat_id, _ in boat_beacons}
 
@@ -325,7 +321,7 @@ def main():
                 continue
             boat_id, beacon_mac = random.choice(not_active)
             # Randomly choose direction but bias by approx_state to respect sequences
-            if approx_state.get(boat_id) in ("entered", "inner", "idle"):
+            if approx_state.get(boat_id) in ("idle", "entered", "inner"):
                 direction = "exit"
             else:
                 direction = "enter"

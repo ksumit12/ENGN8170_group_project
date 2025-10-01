@@ -334,11 +334,26 @@ class EntryExitFSM:
             beacon_state.current_state = new_state
             beacon_state.last_update = now
             
-            # Update timestamps for entry/exit events
+            # Update timestamps for entry/exit events and log trips
             if new_state == FSMState.ENTERED:
                 beacon_state.entry_timestamp = now
+                # Log trip end when boat returns to shed
+                if beacon_state.boat_id:
+                    try:
+                        trip_id, duration = self.db.end_trip(beacon_state.boat_id, beacon_id, now)
+                        if trip_id:
+                            logger.info(f"Trip completed for boat {beacon_state.boat_id}: {duration} min", "TRIP")
+                    except Exception as e:
+                        logger.error(f"Failed to end trip: {e}", "TRIP")
             elif new_state == FSMState.EXITED:
                 beacon_state.exit_timestamp = now
+                # Log trip start when boat exits to water
+                if beacon_state.boat_id:
+                    try:
+                        trip_id = self.db.start_trip(beacon_state.boat_id, beacon_id, now)
+                        logger.info(f"Trip started for boat {beacon_state.boat_id}: {trip_id}", "TRIP")
+                    except Exception as e:
+                        logger.error(f"Failed to start trip: {e}", "TRIP")
             
             # Save to database
             self._save_beacon_state(beacon_state)

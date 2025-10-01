@@ -8,202 +8,190 @@ Multi-beacon BLE system for tracking boat presence and managing beacon-to-boat a
 - Database-backed boats, beacons, assignments, and detection history (SQLite by default)
 - Web dashboard for presence and management
 - REST API for integrations
+- **NEW**: Trip tracking and water time analytics
+- **NEW**: Multiple display modes (web dashboard + HDMI terminal display)
 
 ## Prerequisites
 
 - Python 3.10+
 - Linux with BLE support (BlueZ). Ensure your user can access the BLE adapter.
+- Raspberry Pi (recommended) with HDMI output for terminal display
 
-## Installation
+## Fresh Raspberry Pi Setup (Complete Guide)
 
+### Step 1: SSH into Raspberry Pi
 ```bash
-pip install -r requirements.txt
+ssh pi@<RPI_IP> -p 2222
 ```
 
-##  ONE COMMAND SETUP (Fresh RPi)
-
+### Step 2: One-Command Setup
 ```bash
-# 1. Activate virtual environment (FIRST STEP after SSH)
-source .venv/bin/activate
-
-# 2. Clone and setup everything
+# Clone the repository
 git clone https://github.com/ksumit12/ENGN8170_group_project.git
 cd ENGN8170_group_project
-chmod +x setup_rpi.sh
-./setup_rpi.sh
 
-# 3. Start the system
-./start_system.sh
+# Make setup script executable and run it
+chmod +x scripts/setup_rpi.sh
+./scripts/setup_rpi.sh
 ```
 
-**Your static URL**: `https://boat-tracking-ksumit12.ngrok.io` (NEVER CHANGES!)
-
-## Quick Start (Already Setup)
-
-### Local Development
+### Step 3: Activate Environment and Start System
 ```bash
-# 1. Activate virtual environment
+# Activate virtual environment (REQUIRED before any commands)
 source .venv/bin/activate
 
-# 2. Run the system (web dashboard)
+# Initialize database with sample data
+python3 setup_new_system.py
+
+# Start the system (choose your preferred mode)
+```
+
+## Running the System
+
+### Option 1: Web Dashboard Only (Default)
+```bash
+# Activate environment first
+source .venv/bin/activate
+
+# Start web dashboard
 python3 boat_tracking_system.py --api-port 8000 --web-port 5000
+```
+- **Access**: http://localhost:5000 (or http://<RPI_IP>:5000 from other devices)
+- **Features**: Full interactive dashboard, boat management, beacon registration, trip analytics
 
-# 2. Run with terminal display (HDMI monitor)
+### Option 2: HDMI Terminal Display Only
+```bash
+# Activate environment first
+source .venv/bin/activate
+
+# Start terminal display (HDMI monitor)
 python3 boat_tracking_system.py --display-mode terminal
+```
+- **Access**: Direct HDMI output on Raspberry Pi
+- **Features**: Real-time boat status board, color-coded status indicators, automatic updates
 
-# 2. Run with both web and terminal display
+### Option 3: Both Web + Terminal Display
+```bash
+# Activate environment first
+source .venv/bin/activate
+
+# Start both web and terminal display
 python3 boat_tracking_system.py --display-mode both --api-port 8000 --web-port 5000
 ```
+- **Access**: Web dashboard + HDMI terminal display simultaneously
+- **Features**: Full web functionality + live terminal display
 
-### Public Access
+### Option 4: Public Access (ngrok tunnel)
 ```bash
-# 1. Activate virtual environment
+# Activate environment first
 source .venv/bin/activate
 
-# 2. Start the system
-./start_system.sh
+# Start with public tunnel
+./scripts/start_public.sh
+```
+- **Access**: Public URL via ngrok tunnel
+- **Static URL**: `https://boat-tracking-ksumit12.ngrok.io` (NEVER CHANGES!)
+
+## Stopping the System
+
+### Quick Stop (All Processes)
+```bash
+# Stop all boat tracking processes
+./scripts/stop_everything.sh
 ```
 
-## Initial Setup
+### Manual Stop
+```bash
+# Kill specific processes
+pkill -f boat_tracking_system.py
+pkill -f scanner_service.py
+pkill -f sim_run_simulator.py
+```
 
-Initialize the database and sample data:
+## Physical Hardware Setup
+
+### BLE Scanner Placement
+You need **two BLE scanners** with 2m USB extensions:
+
+1. **Inner Scanner (gate-inner)**:
+   - Place **inside the shed**
+   - Mount on wall/post inside, ~1m from boat storage area
+   - Should detect boats when fully inside
+
+2. **Outer Scanner (gate-outer)**:
+   - Place **outside the shed**
+   - Mount on external wall/post, ~1m from water access point
+   - Should detect boats when on water side
+
+### BLE Beacon Configuration
+Configure your beacons for **~1-1.5 meter detection radius**:
+- **Transmission Power**: Medium/low (not maximum)
+- **Advertising Interval**: 100-200ms (faster = more frequent detections)
+- **Range**: ~1m detection radius per scanner
+
+### Testing Setup
+1. **Test Range**: Place beacon at different distances from each scanner
+2. **Verify Sequence**: Walk beacon from inside → outside and confirm detection sequence
+3. **Check FSM**: Verify state transitions in web dashboard
+
+## New Features
+
+### Trip Tracking & Analytics
+- **Water Time Today**: New column showing total minutes each boat spent on water today
+- **Trip History**: Complete log of all boat trips with duration
+- **Usage Analytics**: Track most-used boats and total service hours
+- **Admin Logs**: Trip data saved in admin page logs
+
+### Display Modes
+- **Web Dashboard**: Full interactive interface with all features
+- **Terminal Display**: Clean HDMI output optimized for monitors
+- **Both**: Simultaneous web + terminal display
+
+## Initial Setup Commands
 
 ```bash
-# 1. Activate virtual environment
+# 1. SSH into Raspberry Pi
+ssh pi@<RPI_IP> -p 2222
+
+# 2. Clone and setup
+git clone https://github.com/ksumit12/ENGN8170_group_project.git
+cd ENGN8170_group_project
+chmod +x scripts/setup_rpi.sh
+./scripts/setup_rpi.sh
+
+# 3. Activate environment (REQUIRED for all operations)
 source .venv/bin/activate
 
-# 2. Initialize database
+# 4. Initialize database
 python3 setup_new_system.py
-```
 
-This creates `boat_tracking.db` with sample boats and beacons for testing.
-
-## Running
-
-### Full system (orchestrator)
-
-Starts API server, two scanners (inner/outer), and the web dashboard.
-
-```bash
-# 1. Activate virtual environment
-source .venv/bin/activate
-
-# 2. Run the system (web dashboard)
-python3 boat_tracking_system.py
-
-# 2. Run with terminal display (HDMI monitor)
+# 5. Start system (choose your mode)
+python3 boat_tracking_system.py --display-mode web --api-port 8000 --web-port 5000
+# OR
 python3 boat_tracking_system.py --display-mode terminal
-
-# 2. Run with both web and terminal display
-python3 boat_tracking_system.py --display-mode both
-```
-
-Defaults:
-- API Server: http://localhost:8000
-- Web Dashboard: http://localhost:5000 (when display-mode is 'web' or 'both')
-- Terminal Display: Active on HDMI output (when display-mode is 'terminal' or 'both')
-
-You can also override ports:
-
-```bash
-# 1. Activate virtual environment
-source .venv/bin/activate
-
-# 2. Run with custom ports
-python3 boat_tracking_system.py --api-port 8001 --web-port 5001
-```
-
-### Components separately
-
-API server only:
-
-```bash
-# 1. Activate virtual environment
-source .venv/bin/activate
-
-# 2. Run API server
-python3 api_server.py --port 8000
-```
-
-Scanner (run one per scanner location):
-
-```bash
-# 1. Activate virtual environment
-source .venv/bin/activate
-
-# 2. Run scanners
-python3 ble_scanner.py --scanner-id gate-outer --server-url http://localhost:8000
-python3 ble_scanner.py --scanner-id gate-inner --server-url http://localhost:8000
+# OR
+python3 boat_tracking_system.py --display-mode both --api-port 8000 --web-port 5000
 ```
 
 ## Registering a New Beacon
 
-1. Open the web dashboard at http://localhost:5000
-2. Click “Register New Beacon”
-3. Click “Start Scanning” – only iBeacon devices are listed
-4. Select your beacon (name and MAC are shown), complete boat details, save
+1. Open web dashboard at http://localhost:5000
+2. Click "Register New Beacon"
+3. Click "Start Scanning" – only iBeacon devices are listed
+4. Select your beacon, complete boat details, save
+5. Beacon appears on dashboard and in API
 
-The beacon is assigned to the boat and appears on the dashboard and in the API.
-
-## Display Modes
-
-The system supports multiple display options for different use cases:
-
-### Web Dashboard (Default)
-- **Mode**: `--display-mode web` (default)
-- **Access**: Browser at http://localhost:5000
-- **Features**: Full interactive dashboard with boat management, beacon registration, logs
-- **Best for**: Remote access, management tasks, detailed monitoring
-
-### Terminal Display (HDMI Monitor)
-- **Mode**: `--display-mode terminal`
-- **Access**: Direct HDMI output on Raspberry Pi
-- **Features**: 
-  - Real-time boat status board with color-coded status indicators
-  - Automatic updates every 3 seconds
-  - Boat name, class, status, last seen time, signal strength
-  - Currently in shed summary
-  - System status information
-  - Clean, readable format optimized for monitors
-- **Best for**: Headless RPi with HDMI monitor, simple status display, kiosk mode
-
-### Both Modes
-- **Mode**: `--display-mode both`
-- **Access**: Web dashboard + HDMI terminal display simultaneously
-- **Features**: Full web functionality + live terminal display
-- **Best for**: RPi with monitor + remote access, comprehensive monitoring
-
-### Usage Examples
+## Testing with Simulator
 
 ```bash
-# Web dashboard only (default)
-python3 boat_tracking_system.py
+# Activate environment first
+source .venv/bin/activate
 
-# Terminal display only (HDMI monitor)
-python3 boat_tracking_system.py --display-mode terminal
+# Run simulator for testing
+python3 sim_run_simulator.py
 
-# Both web and terminal display
-python3 boat_tracking_system.py --display-mode both --api-port 8000 --web-port 5000
-```
-
-## Features
-
-- iBeacon-only filtering at the scanner level (Apple manufacturer data 0x004C, subtype 0x02 0x15)
-- Beacon discovery and registration workflow
-- One active beacon per boat enforced by the database
-- Presence summary and recent detections
-- Multiple display modes (web, terminal, both)
-
-## REST API (selected)
-
-```
-POST /api/v1/detections              # Scanner → server observations
-GET  /api/v1/boats                   # List boats
-POST /api/v1/boats                   # Create boat
-POST /api/v1/boats/{id}/assign-beacon
-GET  /api/v1/beacons                 # List beacons
-GET  /api/v1/presence                # Presence summary
-GET  /health                         # Health check
+# Seed database with test data
+python3 sim_seed_data.py --boats 10 --days 10 --reset
 ```
 
 ## Project Structure
@@ -213,143 +201,86 @@ grp_project/
 ├── boat_tracking_system.py    # Main orchestrator (API + scanners + dashboard)
 ├── api_server.py              # REST API (Flask) and presence endpoints
 ├── ble_scanner.py             # BLE scanner (filters iBeacon) and posts detections
+├── scanner_service.py         # Multi-gate scanner service
 ├── app/                       # Core application modules
-│   ├── database_models.py     # SQLite models and CRUD
+│   ├── database_models.py     # SQLite models, CRUD, trip tracking
 │   ├── entry_exit_fsm.py      # Entry/exit finite state machine
+│   ├── fsm_engine.py          # Pluggable FSM engine interface
 │   ├── admin_service.py       # Admin operations service
 │   └── logging_config.py      # Centralized logging configuration
 ├── requirements.txt           # Python dependencies
 ├── data/                      # Database and logs directory
 │   ├── boat_tracking.db      # SQLite database
 │   └── logs/                 # System logs
-├── scripts/                   # Operational scripts (start/stop/status/setup)
+├── scripts/                   # Operational scripts
+│   ├── setup_rpi.sh          # One-command setup on fresh RPi
 │   ├── start_everything.sh    # Start API, dashboard, and ngrok
-│   ├── stop_everything.sh     # Stop processes
+│   ├── stop_everything.sh     # Stop all processes
 │   ├── check_status.sh        # Health/status snapshot
-│   ├── start_public.sh        # Start with public tunnel
-│   ├── setup_rpi.sh           # One-command setup on fresh RPi
-│   └── reserve_domain.sh      # Helper to reserve ngrok domain
+│   └── start_public.sh        # Start with public tunnel
 ├── system/
 │   └── json/                  # Runtime JSON configuration
 │       ├── scanner_config.json
-│       ├── scanner_config.example.json
 │       └── settings.json
 ├── tools/                     # Developer utilities
 │   ├── ble_testing/          # BLE scanner testing tools
-│   │   ├── identify_ble_dongles.py
-│   │   ├── scanner_range_test.py
-│   │   ├── ble_scanner_tester.py
-│   │   └── BLE_TESTING_GUIDE.md
 │   └── network/              # Network helpers
-│       ├── get_ip.py
-│       ├── start_network.sh
-│       └── configure_firewall.sh
 └── README.md                  # This file
 ```
 
-## Tools and Utilities
+## REST API Endpoints
 
-### BLE Testing Tools (`tools/ble_testing/`)
-- Test BLE dongle range and performance
-- Identify available BLE adapters
-- Compare multiple scanners
-
-### Network Access Tools (`tools/network/`)
-- Make system accessible from other devices
-- Configure firewall for network access
-- Get Raspberry Pi IP address
-
-### Utility Scripts (`tools/scripts/`)
-- Kill system processes and free ports
-- Clean up running services
+```
+POST /api/v1/detections              # Scanner → server observations
+GET  /api/v1/boats                   # List boats (includes water_time_today_minutes)
+POST /api/v1/boats                   # Create boat
+POST /api/v1/boats/{id}/assign-beacon
+GET  /api/v1/beacons                 # List beacons
+GET  /api/v1/presence                # Presence summary
+GET  /api/v1/trips/{boat_id}         # Get trip history for boat
+GET  /api/v1/usage-stats             # Get usage analytics
+GET  /health                         # Health check
+```
 
 ## Troubleshooting
 
-- **Port in use (8000/5000)**: use `./tools/scripts/kill_boat_servers.sh` to stop previous runs
-- **BLE permissions**: ensure your user can access the BLE adapter (Bluetooth group or run with appropriate permissions)
-- **No beacons listed**: ensure your device is broadcasting iBeacon frames
-- **Network access issues**: use `./tools/network/get_ip.py` to get RPi IP and `./tools/network/configure_firewall.sh` to configure firewall
-- **BLE range testing**: use `./tools/ble_testing/scanner_range_test.py` to test dongle range
-- **Terminal display issues**: 
-  - Ensure HDMI monitor is connected and powered on
-  - Check that display mode is set correctly: `--display-mode terminal`
-  - For headless RPi, ensure HDMI output is enabled in `/boot/config.txt`
-  - Terminal display updates every 3 seconds - be patient if data appears delayed
+### Common Issues
+- **Port in use (8000/5000)**: Run `./scripts/stop_everything.sh` to stop previous runs
+- **BLE permissions**: Ensure user can access BLE adapter (Bluetooth group)
+- **No beacons listed**: Ensure device is broadcasting iBeacon frames
+- **Environment not activated**: Always run `source .venv/bin/activate` first
+- **HDMI display issues**: Check HDMI connection and `/boot/config.txt` settings
+
+### Useful Commands
+```bash
+# Check system status
+./scripts/check_status.sh
+
+# Stop all processes
+./scripts/stop_everything.sh
+
+# Get Raspberry Pi IP
+python3 tools/network/get_ip.py
+
+# Test BLE scanner range
+python3 tools/ble_testing/scanner_range_test.py
+```
 
 ## Development Notes
 
-- The scanner captures device local name and MAC and forwards them to the server.
-- The web dashboard lists only beacons not yet assigned during registration.
+- Scanner captures device local name and MAC, forwards to server
+- Web dashboard lists only unassigned beacons during registration
+- FSM supports maintenance-aware operations (ignores detections for boats in maintenance)
+- Trip tracking automatically logs entry/exit events with duration
+- Multi-gate architecture supports hardware isolation and independent scanner tuning
 
 ---
 
-For migration details from the old single-beacon scripts, see `MIGRATION_GUIDE.md`.
-
-## Multi-Gate Architecture (Hardware Isolation)
-
-This system now separates hardware scanning from the API/FSM/dashboard so you can scale to multiple gates and tune each scanner independently.
-
-- Hardware daemon: `scanner_service.py`
-  - Talks to BLE adapters only (hci0/hci1/...).
-  - Posts observations to the API at `/api/v1/detections`.
-  - Supports multi-gate config and per-scanner tuning via `rssi_threshold` and `rssi_bias_db`.
-- API + FSM + Dashboard: `boat_tracking_system.py` (or `api_server.py` for API only)
-  - Consumes observations, runs entry/exit FSM, updates DB, serves UI.
-
-### Config for multi-gate scanning
-Create a file `scanner_config.json`:
-
-```json
-{
-  "api_host": "localhost",
-  "api_port": 8000,
-  "gates": [
-    {
-      "id": "gate-1",
-      "hysteresis": { "enter_dbm": -58, "exit_dbm": -64, "min_hold_ms": 1200 },
-      "scanners": [
-        { "id": "gate-1-left",  "adapter": "hci0", "rssi_threshold": -60, "rssi_bias_db": 0 },
-        { "id": "gate-1-right", "adapter": "hci1", "rssi_threshold": -55, "rssi_bias_db": 0 }
-      ]
-    }
-  ]
-}
-```
-
-- `rssi_threshold`: base cutoff per scanner (dBm)
-- `rssi_bias_db`: software bias to emulate scan power tuning (negative expands zone, positive tightens)
-
-### Run
-- Start API/UI (on RPi):
-```bash
-# 1. Activate virtual environment
-source .venv/bin/activate
-
-# 2. Start API/UI
-python3 boat_tracking_system.py --api-port 8000 --web-port 5000
-```
-- Start hardware daemon (same host):
-```bash
-# 1. Activate virtual environment
-source .venv/bin/activate
-
-# 2. Start scanner service
-python3 scanner_service.py --config system/json/scanner_config.json
-```
-
-### Logs
-- Scanner posts include `gate_id`, `scanner_id`, `adapter` and are logged as detections.
-- State changes include `gate_id` in the API response `state_changes`.
-
-### Notes on FSM and gates
-- Current FSM supports a single gate by `outer_scanner_id`/`inner_scanner_id` naming.
-- Maintenance-aware FSM: when a boat's `op_status` is `MAINTENANCE`, detections are ignored.
-- Beacon replacement safety: FSM context resets automatically if a beacon is re-mapped to a different boat.
-- Multi-gate isolation: scanners tag `gate_id` and API logs it; per-gate persistence can be added without schema breaks.
-
-### Passage setup quick tips
-- Place scanners ~2–4 m apart (USB extension okay). Start with thresholds:
-  - Left: `rssi_threshold: -60`
-  - Right: `rssi_threshold: -55`
-- Adjust `rssi_bias_db` by ±2–5 dB to reduce overlap.
-- Verify with logs that each side primarily detects when the tag is closest.
+**Quick Start Summary:**
+1. SSH: `ssh pi@<RPI_IP> -p 2222`
+2. Clone: `git clone https://github.com/ksumit12/ENGN8170_group_project.git`
+3. Setup: `cd ENGN8170_group_project && chmod +x scripts/setup_rpi.sh && ./scripts/setup_rpi.sh`
+4. Activate: `source .venv/bin/activate`
+5. Initialize: `python3 setup_new_system.py`
+6. Run: `python3 boat_tracking_system.py --display-mode web --api-port 8000 --web-port 5000`
+7. Access: http://localhost:5000
