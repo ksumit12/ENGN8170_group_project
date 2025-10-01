@@ -75,10 +75,9 @@ class EntryExitFSM:
         self.dom_enter_s = 4.0      # sustained inner strong with outer weak
         self.dom_exit_s = 6.0       # sustained outer strong with inner weak
         self.d_clear_s = 3.0     # Duration to be clear before committing exit
-        # After ENTERED, if there is no movement for 30 minutes, go back to IDLE
-        self.t_idle_s = 1800.0   # Timeout to IDLE from ENTERED (inactivity)
-        # Keep a longer timeout for EXITED before collapsing to IDLE
-        self.t_idle_long_s = 3600.0  # Timeout to IDLE from EXITED (long absence)
+        # Testing-friendly idle timeouts (drop to IDLE faster when no signal)
+        self.t_idle_s = 60.0     # Timeout to IDLE from ENTERED (inactivity)
+        self.t_idle_long_s = 120.0  # Timeout to IDLE from EXITED (long absence)
         # Anti-bounce: minimum time between successive state flips
         self.min_transition_gap_s = 6.0
         
