@@ -11,6 +11,12 @@ Multi-beacon BLE system for tracking boat presence and managing beacon-to-boat a
 - **NEW**: Trip tracking and water time analytics
 - **NEW**: Multiple display modes (web dashboard + HDMI terminal display)
 
+## System Architecture
+
+The diagram below shows the full system from BLE receivers to the web/API and users.
+
+![System Architecture](docs/system_architecture.png)
+
 ## Prerequisites
 
 - Python 3.10+
