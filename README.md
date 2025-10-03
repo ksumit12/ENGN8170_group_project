@@ -198,35 +198,91 @@ python3 sim_seed_data.py --boats 10 --days 10 --reset
 
 ```
 grp_project/
-├── boat_tracking_system.py    # Main orchestrator (API + scanners + dashboard)
-├── api_server.py              # REST API (Flask) and presence endpoints
-├── ble_scanner.py             # BLE scanner (filters iBeacon) and posts detections
-├── scanner_service.py         # Multi-gate scanner service
-├── app/                       # Core application modules
-│   ├── database_models.py     # SQLite models, CRUD, trip tracking
-│   ├── entry_exit_fsm.py      # Entry/exit finite state machine
-│   ├── fsm_engine.py          # Pluggable FSM engine interface
-│   ├── admin_service.py       # Admin operations service
-│   └── logging_config.py      # Centralized logging configuration
-├── requirements.txt           # Python dependencies
-├── data/                      # Database and logs directory
-│   ├── boat_tracking.db      # SQLite database
-│   └── logs/                 # System logs
-├── scripts/                   # Operational scripts
-│   ├── setup_rpi.sh          # One-command setup on fresh RPi
-│   ├── start_everything.sh    # Start API, dashboard, and ngrok
-│   ├── stop_everything.sh     # Stop all processes
-│   ├── check_status.sh        # Health/status snapshot
-│   └── start_public.sh        # Start with public tunnel
+├── boat_tracking_system.py     # Web Dashboard + API Orchestrator [Web/API Server + Displays]
+├── api_server.py               # REST API server for detections and status [Web/API Server]
+├── ble_scanner.py              # Single BLE receiver at a gate [Receivers at Chokepoint]
+├── scanner_service.py          # Runs both receivers together [BLE Ingest]
+├── beacon_simulator.py         # Test signal generator [Simulation & Testing]
+├── sim_run_simulator.py        # Movement simulator end-to-end [Simulation & Testing]
+├── sim_fsm_viewer.py           # Visualizes state changes [Displays]
+├── sim_seed_data.py            # Creates demo boats/beacons/trips [State Store]
+├── scanner_service.py          # Service to run both scanners together [BLE Ingest]
+├── app/                        # Core application modules
+│   ├── database_models.py      # Database tables and access [State Store]
+│   ├── entry_exit_fsm.py       # Boat entry/exit logic (rules) [Event Engine]
+│   ├── fsm_engine.py           # Wires FSM into the app [Event Engine]
+│   ├── admin_service.py        # Admin actions (assign beacons, etc.) [Web/API Server]
+│   └── logging_config.py       # Unified logs [All blocks]
+├── requirements.txt            # Python dependencies
+├── data/                       # Database and logs directory
+│   ├── boat_tracking.db        # SQLite database (runtime) [State Store]
+│   └── logs/                   # System logs [Observability]
+├── scripts/                    # Operational & diagnostic scripts
+│   ├── setup_rpi.sh            # One-command Pi setup [Deployment]
+│   ├── start_everything.sh     # Start full system [Operations]
+│   ├── stop_everything.sh      # Stop all processes [Operations]
+│   ├── check_status.sh         # Health/status snapshot [Operations]
+│   ├── start_public.sh         # Public tunnel start [Operations]
+│   ├── monitor_scanner_sequences.py # Shows inner→outer / outer→inner in real time [Diagnostics]
+│   └── ibeacon_dual_monitor.py # Live signal strength & distance per adapter [Receivers Diagnostics]
 ├── system/
-│   └── json/                  # Runtime JSON configuration
-│       ├── scanner_config.json
-│       └── settings.json
-├── tools/                     # Developer utilities
-│   ├── ble_testing/          # BLE scanner testing tools
-│   └── network/              # Network helpers
-└── README.md                  # This file
+│   └── json/                   # Runtime JSON configuration
+│       ├── scanner_config.json # Which USB adapter is inner/outer, thresholds [Receivers + Ingest]
+│       └── settings.json       # General app settings [Operations]
+├── tools/                      # Developer utilities
+│   ├── backfill_history.py     # Rebuild trip/history data [State Store]
+│   ├── ble_testing/            # BLE range tests & helpers [Receivers Diagnostics]
+│   └── network/                # Network helpers (e.g., get_ip) [Operations]
+└── README.md                   # This file
 ```
+
+> System diagram: see `~/Documents/system_architecture.png` (not tracked in repo).
+
+## System Architecture → Code Map
+
+This maps each block in the architecture diagram to the scripts/modules that implement it, so teammates can find the relevant code quickly.
+
+- BLE Receivers at Chokepoint (Left/Right/Overhead)
+  - Primary: `ble_scanner.py` (single scanner), `scanner_service.py` (multi-scanner)
+  - Config: `system/json/scanner_config.json` (adapters `hci0/hci1`, thresholds)
+  - Diagnostics: `scripts/ibeacon_dual_monitor.py`, `tools/ble_testing/*`
+
+- BLE Ingest (BlueZ scanner service)
+  - `ble_scanner.py`, `scanner_service.py`
+  - Uses BlueZ via `bleak` to filter iBeacon frames, batches observations
+
+- Event Engine (RSSI filter • thresholds • direction)
+  - `app/entry_exit_fsm.py` (5-state FSM with pair windows, dominance, hysteresis)
+  - `app/fsm_engine.py` (engine interface/wiring)
+
+- State Store (SQLite)
+  - `app/database_models.py` (tables: `beacons`, `boats`, `detections`, `beacon_states`, assignments)
+  - Runtime DB file: `data/boat_tracking.db`
+
+- Web/API Server (Flask)
+  - Dashboard + API orchestrator: `boat_tracking_system.py` (web on port 5000, API proxy)
+  - Standalone API service: `api_server.py` (port 8000)
+
+- Notifier (entry/exit sounds + webhooks)
+  - Hook points live in `boat_tracking_system.py` (web UI) and `api_server.py` (extendable). Addons can subscribe to state changes.
+
+- Displays (HDMI kiosk / Web dashboard)
+  - Web: `boat_tracking_system.py` → routes `/`, `/fsm`, `/api/fsm-states`, etc.
+  - Terminal: `boat_tracking_system.py --display-mode terminal`
+
+- Users / Network
+  - LAN/Wi‑Fi access via ports 5000 (web) and 8000 (API)
+  - Utilities: `tools/network/get_ip.py`, scripts under `scripts/`
+
+- Simulation & Testing
+  - Movement simulator: `sim_run_simulator.py`
+  - Beacon simulator: `beacon_simulator.py`
+  - FSM visualizer: `sim_fsm_viewer.py`
+  - Live sequence monitor: `scripts/monitor_scanner_sequences.py`
+
+Physical mapping tips
+- Inner scanner = `gate-inner` (typically `hci1`); outer scanner = `gate-outer` (typically `hci0`), configured in `system/json/scanner_config.json`.
+- Dashboard: `http://<pi-ip>:5000/` • API: `http://<pi-ip>:8000/`.
 
 ## REST API Endpoints
 
