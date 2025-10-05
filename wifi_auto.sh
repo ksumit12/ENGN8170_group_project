@@ -14,6 +14,8 @@ CONF="/etc/wpa_supplicant/wpa_supplicant.conf"
 HOTSPOT_SSID="Sumit_iPhone"            # change if needed
 PREF_ORDER=("Red Shed Guest" "$HOTSPOT_SSID" "ANU-Secure")
 DHCLIENT_LEASES="/var/lib/dhcp/dhclient.leases"
+# Default to NetworkManager-managed flow unless explicitly disabled with --no-nm
+USE_NETWORKMANAGER=1
 # --------------------------------
 
 say()  { echo -e "\033[1;32m[+]\033[0m $*"; }
@@ -22,6 +24,119 @@ err()  { echo -e "\033[1;31m[x]\033[0m $*" >&2; }
 
 need() { command -v "$1" >/dev/null || { err "Missing: $1 (sudo apt install $1)"; exit 1; }; }
 need wpa_cli; need wpa_supplicant; need ip; need iwgetid; need dhclient; need awk; need sed; need ss; need grep; need tee
+# Arg parsing (only simple flag supported)
+for arg in "$@"; do
+  case "$arg" in
+    --no-nm)
+      USE_NETWORKMANAGER=0
+      shift
+      ;;
+  esac
+done
+
+
+# Stop managers that fight with this script (best effort)
+stop_conflicting_services() {
+  if [ "$USE_NETWORKMANAGER" -eq 1 ]; then
+    # NM-first mode: keep NM, stop raw managers that conflict
+    sudo systemctl disable --now wpa_supplicant@wlan0 wpa_supplicant dhcpcd 2>/dev/null || true
+    sudo nmcli radio wifi on 2>/dev/null || true
+    # Ensure device is managed by NetworkManager (UI red-cross issue)
+    if command -v nmcli >/dev/null 2>&1; then
+      IFNM="$(iw dev 2>/dev/null | awk '/Interface/ {print $2; exit}')"
+      [ -n "$IFNM" ] && nmcli dev set "$IFNM" managed yes 2>/dev/null || true
+    fi
+  else
+    # Raw mode: stop NM and use wpa_supplicant directly
+    if systemctl is-active --quiet NetworkManager 2>/dev/null; then
+      warn "Stopping NetworkManager to avoid conflicts"
+      sudo systemctl stop NetworkManager || true
+      sudo systemctl disable NetworkManager || true
+    fi
+    if systemctl is-active --quiet dhcpcd 2>/dev/null; then
+      warn "Stopping dhcpcd (using dhclient in this script)"
+      sudo systemctl stop dhcpcd || true
+    fi
+  fi
+}
+
+# Ensure necessary packages exist (best effort, skips if already installed)
+ensure_packages() {
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update -qq || true
+    sudo apt-get install -y --no-install-recommends \
+      wpasupplicant wireless-tools dhcpcd5 resolvconf ufw >/dev/null 2>&1 || true
+  fi
+}
+
+# Auto-detect wireless interface if the default is not present
+detect_iface() {
+  if ! ip link show "$IF" >/dev/null 2>&1; then
+    local found
+    found="$(iw dev 2>/dev/null | awk '/Interface/ {print $2; exit}')"
+    if [ -n "$found" ]; then
+      IF="$found"
+      say "Detected wireless interface: $IF"
+    else
+      err "No wireless interface found (expected $IF)."
+      exit 1
+    fi
+  fi
+}
+
+# Clear stale control sockets and PIDs, ensure control dir exists
+prep_wpa_runtime() {
+  sudo mkdir -p /var/run/wpa_supplicant
+  sudo chgrp netdev /var/run/wpa_supplicant 2>/dev/null || true
+  sudo chmod 0775 /var/run/wpa_supplicant 2>/dev/null || true
+  # Kill any stuck wpa_supplicant for this IF
+  sudo pkill -f "wpa_supplicant .* -i $IF" 2>/dev/null || true
+  sudo rm -f "/var/run/wpa_supplicant/$IF" 2>/dev/null || true
+}
+
+# Unblock rfkill and bring interface cleanly up
+reset_radio() {
+  sudo rfkill unblock wifi || true
+  sudo ip link set "$IF" down || true
+  sudo ip addr flush dev "$IF" || true
+  sudo ip link set "$IF" up || true
+}
+
+# DHCP using dhclient first, fallback to dhcpcd
+do_dhcp() {
+  local tries=0
+  sudo pkill -f "dhclient $IF" 2>/dev/null || true
+  sudo dhclient -r "$IF" 2>/dev/null || true
+  IPV4=""
+  while [ $tries -lt 3 ]; do
+    tries=$((tries+1))
+    sudo dhclient -v "$IF" | sed 's/^/[dhclient] /' || true
+    IPV4="$(ip -4 -o addr show dev "$IF" | awk '{print $4}' | cut -d/ -f1)"
+    [ -n "$IPV4" ] && break
+    warn "No IPv4 yet... retry $tries/3"
+    sleep 2
+  done
+  if [ -z "$IPV4" ] && command -v dhcpcd >/dev/null 2>&1; then
+    warn "Falling back to dhcpcd"
+    sudo pkill -f "dhcpcd .* $IF" 2>/dev/null || true
+    sudo dhcpcd -k "$IF" 2>/dev/null || true
+    sudo dhcpcd "$IF" || true
+    IPV4="$(ip -4 -o addr show dev "$IF" | awk '{print $4}' | cut -d/ -f1)"
+  fi
+}
+
+# Allow SSH ports through common firewalls (best effort)
+open_firewall_ports() {
+  if command -v ufw >/dev/null 2>&1; then
+    sudo ufw allow 22/tcp >/dev/null 2>&1 || true
+    sudo ufw allow 2222/tcp >/dev/null 2>&1 || true
+  fi
+  # nftables/iptables best-effort allowance
+  if command -v iptables >/dev/null 2>&1; then
+    sudo iptables -C INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null || sudo iptables -A INPUT -p tcp --dport 22 -j ACCEPT || true
+    sudo iptables -C INPUT -p tcp --dport 2222 -j ACCEPT 2>/dev/null || sudo iptables -A INPUT -p tcp --dport 2222 -j ACCEPT || true
+  fi
+}
 
 # ---------- Create wpa_supplicant.conf with site priorities ----------
 ensure_wpa_conf() {
@@ -61,6 +176,26 @@ network={
 }
 EOF
   say "Created $CONF with priority: Red Shed Guest -> Sumit_iPhone -> ANU-Secure"
+}
+
+# ---------- NetworkManager connection provisioning ----------
+nm_provision_connections() {
+  say "Provisioning NetworkManager connections..."
+  local ifnm
+  ifnm="$(iw dev 2>/dev/null | awk '/Interface/ {print $2; exit}')"
+  [ -z "$ifnm" ] && ifnm="$IF"
+  # Red Shed Guest
+  nmcli -t -f NAME con show | grep -Fxq "Red Shed Guest" || \
+    nmcli con add type wifi ifname "$ifnm" con-name "Red Shed Guest" ssid "Red Shed Guest" || true
+  nmcli con mod "Red Shed Guest" 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "RowingisGreat2025!" connection.autoconnect yes connection.autoconnect-priority 100 || true
+  # Sumit_iPhone
+  nmcli -t -f NAME con show | grep -Fxq "$HOTSPOT_SSID" || \
+    nmcli con add type wifi ifname "$ifnm" con-name "$HOTSPOT_SSID" ssid "$HOTSPOT_SSID" || true
+  nmcli con mod "$HOTSPOT_SSID" 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "123451234" connection.autoconnect yes connection.autoconnect-priority 90 || true
+  # ANU-Secure (EAP-TTLS/PAP)
+  nmcli -t -f NAME con show | grep -Fxq "ANU-Secure" || \
+    nmcli con add type wifi ifname "$ifnm" con-name "ANU-Secure" ssid "ANU-Secure" || true
+  nmcli con mod "ANU-Secure" 802-11-wireless-security.key-mgmt wpa-eap 802-1x.eap ttls 802-1x.identity "u7871775@anu.edu.au" 802-1x.password "R0b0@2025Fly!" 802-1x.phase2-auth pap 802-1x.ca-cert "/etc/ssl/certs/ca-certificates.crt" connection.autoconnect yes connection.autoconnect-priority 80 || true
 }
 
 # ---------- DNS helpers ----------
@@ -167,47 +302,101 @@ fix_sshd() {
 configure_password() { true; }
 
 # ---------- Wi-Fi bring-up ----------
+stop_conflicting_services
+detect_iface
 ensure_wpa_conf
 configure_password
-say "Resetting Wi-Fi ($IF)…"
+say "Resetting Wi-Fi ($IF)..."
 sudo rfkill unblock wifi || true
 sudo ip link set "$IF" down || true
-sudo killall wpa_supplicant 2>/dev/null || true
+sudo ip addr flush dev "$IF" || true
 sudo ip link set "$IF" up
+sudo killall wpa_supplicant 2>/dev/null || true
 
-# Start wpa_supplicant (service if present, else direct)
-if systemctl list-unit-files | grep -q '^wpa_supplicant\.service'; then
-  say "Starting wpa_supplicant service…"
-  sudo systemctl enable wpa_supplicant >/dev/null 2>&1 || true
-  sudo systemctl restart wpa_supplicant
+if [ "$USE_NETWORKMANAGER" -eq 1 ]; then
+  say "Using NetworkManager to manage Wi-Fi..."
+  sudo systemctl enable --now NetworkManager 2>/dev/null || true
+  nm_provision_connections
+  sudo nmcli radio wifi on || true
+  # Prefer highest priority that is visible
+  nmcli dev wifi rescan || true
+  sleep 2
+  for ssid in "${PREF_ORDER[@]}"; do
+    if nmcli -t -f SSID dev wifi list | grep -Fxq "$ssid"; then
+      case "$ssid" in
+        "Red Shed Guest") nmcli con up "Red Shed Guest" ifname "$IF" || true ;;
+        "$HOTSPOT_SSID") nmcli con up "$HOTSPOT_SSID" ifname "$IF" || true ;;
+        "ANU-Secure") nmcli con up "ANU-Secure" ifname "$IF" || true ;;
+      esac
+      break
+    fi
+  done
 else
-  say "Starting wpa_supplicant (direct)…"
-  sudo wpa_supplicant -B -i "$IF" -c "$CONF" -D nl80211
+  ### Start wpa_supplicant using per-interface service to ensure control socket
+  if systemctl list-unit-files | grep -q '^wpa_supplicant@\.service'; then
+    say "Starting wpa_supplicant@${IF}.service..."
+    sudo systemctl enable "wpa_supplicant@${IF}.service" >/dev/null 2>&1 || true
+    sudo systemctl restart "wpa_supplicant@${IF}.service"
+  elif systemctl list-unit-files | grep -q '^wpa_supplicant\.service'; then
+    say "Starting wpa_supplicant service..."
+    sudo systemctl enable wpa_supplicant >/dev/null 2>&1 || true
+    sudo systemctl restart wpa_supplicant
+  else
+    say "Starting wpa_supplicant (direct)..."
+    sudo wpa_supplicant -B -i "$IF" -c "$CONF" -D nl80211
+  fi
 fi
 
-# Scan & choose preferred SSID
-wpa_cli -i "$IF" reconfigure >/dev/null 2>&1 || true
-say "Scanning for known SSIDs…"
-wpa_cli -i "$IF" scan >/dev/null
-sleep 3
-VISIBLE="$(wpa_cli -i "$IF" scan_results | awk '{print $5}' | tail -n +3)"
+if [ "$USE_NETWORKMANAGER" -eq 0 ]; then
+  # Wait for control interface socket so wpa_cli does not fail
+  for _ in {1..10}; do
+    if wpa_cli -i "$IF" status >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+fi
+
+if [ "$USE_NETWORKMANAGER" -eq 0 ]; then
+  # Scan & choose preferred SSID (if hidden, include configured SSIDs)
+  wpa_cli -i "$IF" reconfigure >/dev/null 2>&1 || true
+  say "Scanning for known SSIDs..."
+  wpa_cli -i "$IF" scan >/dev/null
+  sleep 3
+  VISIBLE="$(wpa_cli -i "$IF" scan_results | awk '{print $5}' | tail -n +3)"
+  if ! echo "$VISIBLE" | grep -Fxq "ANU-Secure"; then
+    # trigger a directed scan for ANU-Secure (hidden APs)
+    wpa_cli -i "$IF" add_network >/dev/null 2>&1 || true
+    wpa_cli -i "$IF" set_network 0 ssid '"ANU-Secure"' >/dev/null 2>&1 || true
+    wpa_cli -i "$IF" set_network 0 scan_ssid 1 >/dev/null 2>&1 || true
+    wpa_cli -i "$IF" scan >/dev/null 2>&1 || true
+    sleep 2
+    VISIBLE="$(wpa_cli -i "$IF" scan_results | awk '{print $5}' | tail -n +3)"
+  fi
+fi
 
 TARGET=""; NETID=""
-for ssid in "${PREF_ORDER[@]}"; do
-  if echo "$VISIBLE" | grep -Fxq "$ssid"; then
-    NETID="$(wpa_cli -i "$IF" list_networks | awk -v s="$ssid" '$2==s {print $1; exit}')"
-    if [ -n "$NETID" ]; then TARGET="$ssid"; break; fi
-  fi
-done
+if [ "$USE_NETWORKMANAGER" -eq 0 ]; then
+  for ssid in "${PREF_ORDER[@]}"; do
+    if echo "$VISIBLE" | grep -Fxq "$ssid"; then
+      NETID="$(wpa_cli -i "$IF" list_networks | awk -v s="$ssid" '$2==s {print $1; exit}')"
+      if [ -n "$NETID" ]; then TARGET="$ssid"; break; fi
+    fi
+  done
+fi
 [ -n "$TARGET" ] || { err "None of the preferred SSIDs are visible: ${PREF_ORDER[*]}"; exit 1; }
 
-say "Connecting to '$TARGET' (network id $NETID)…"
-wpa_cli -i "$IF" select_network "$NETID" >/dev/null
-wpa_cli -i "$IF" enable_network "$NETID"  >/dev/null
-wpa_cli -i "$IF" reassociate             >/dev/null
+if [ "$USE_NETWORKMANAGER" -eq 1 ]; then
+  : # already brought up preferred connection via nmcli above
+else
+  say "Connecting to '$TARGET' (network id $NETID)..."
+  wpa_cli -i "$IF" select_network "$NETID" >/dev/null
+  wpa_cli -i "$IF" enable_network "$NETID"  >/dev/null
+  wpa_cli -i "$IF" reassociate             >/dev/null
+fi
 
-# Wait up to 15s for association
-for _ in {1..15}; do
+# For enterprise/roaming, allow longer association window
+for _ in {1..25}; do
   SSID="$(iwgetid -r || true)"
   STATE="$(wpa_cli -i "$IF" status 2>/dev/null | awk -F= '$1=="wpa_state"{print $2}')"
   [ "$SSID" = "$TARGET" ] && [ "$STATE" = "COMPLETED" ] && break
@@ -217,19 +406,8 @@ SSID="$(iwgetid -r || true)"
 [ "$SSID" = "$TARGET" ] || { err "Failed to associate to '$TARGET'"; exit 1; }
 say "Associated with: $SSID"
 
-# DHCP with small retry loop
-say "Requesting IP (DHCP)…"
-sudo pkill -f "dhclient $IF" 2>/dev/null || true
-sudo dhclient -r "$IF" 2>/dev/null || true
-IPV4=""; tries=0
-while [ $tries -lt 3 ]; do
-  tries=$((tries+1))
-  sudo dhclient -v "$IF" | sed 's/^/[dhclient] /' || true
-  IPV4="$(ip -4 -o addr show dev "$IF" | awk '{print $4}' | cut -d/ -f1)"
-  [ -n "$IPV4" ] && break
-  warn "No IPv4 yet… retry $tries/3"
-  sleep 2
-done
+say "Requesting IP (DHCP)..."
+do_dhcp
 [ -n "$IPV4" ] || { err "No IPv4 lease on $IF after retries"; exit 1; }
 
 # DNS per network
@@ -256,6 +434,7 @@ fi
 # SSH fixes (fast handshake + dual ports)
 say "Applying SSH fixes (UseDNS no, GSSAPIAuthentication no; Ports 22 & 2222)..."
 fix_sshd
+open_firewall_ports
 
 echo
 say "Setup Complete"
