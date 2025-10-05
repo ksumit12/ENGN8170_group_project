@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Wi-Fi bring-up & SSH hardening for Raspberry Pi OS (Bookworm Lite)
-# Pref order: ANU-Secure -> Red Shed Guest -> Sumit_iPhone
+# Pref order: Red Shed Guest -> Sumit_iPhone -> ANU-Secure
 # - Sets DNS per network (campus from DHCP lease; hotspot uses public DNS)
 # - Ensures sshd is fast (UseDNS no, GSSAPIAuthentication no) and listens on 22 + 2222
 # - Prints SSID, IP, DNS, and ping tests
@@ -12,7 +12,7 @@ set -euo pipefail
 IF="wlan0"
 CONF="/etc/wpa_supplicant/wpa_supplicant.conf"
 HOTSPOT_SSID="Sumit_iPhone"            # change if needed
-PREF_ORDER=("ANU-Secure" "Red Shed Guest" "$HOTSPOT_SSID")
+PREF_ORDER=("Red Shed Guest" "$HOTSPOT_SSID" "ANU-Secure")
 DHCLIENT_LEASES="/var/lib/dhcp/dhclient.leases"
 # --------------------------------
 
@@ -23,41 +23,44 @@ err()  { echo -e "\033[1;31m[x]\033[0m $*" >&2; }
 need() { command -v "$1" >/dev/null || { err "Missing: $1 (sudo apt install $1)"; exit 1; }; }
 need wpa_cli; need wpa_supplicant; need ip; need iwgetid; need dhclient; need awk; need sed; need ss; need grep; need tee
 
-# ---------- Create wpa_supplicant.conf with ANU-Secure priority ----------
+# ---------- Create wpa_supplicant.conf with site priorities ----------
 ensure_wpa_conf() {
-  say "Creating/updating $CONF with ANU-Secure EAP-TTLS configuration…"
+  say "Creating/updating $CONF with saved Wi-Fi configuration..."
   sudo mkdir -p "$(dirname "$CONF")"
   sudo tee "$CONF" >/dev/null <<'EOF'
 ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
 update_config=1
 country=AU
 
-# ANU-Secure (priority 1) - EAP-TTLS with PAP
+# Red Shed Guest (priority 1)
+network={
+    ssid="Red Shed Guest"
+    key_mgmt=WPA-PSK
+    psk="RowingisGreat2025!"
+    priority=1
+}
+
+# Sumit_iPhone hotspot (priority 2)
+network={
+    ssid="Sumit_iPhone"
+    key_mgmt=WPA-PSK
+    psk="123451234"
+    priority=2
+}
+
+# ANU-Secure (priority 3) - EAP-TTLS with PAP
 network={
     ssid="ANU-Secure"
     key_mgmt=WPA-EAP
     eap=TTLS
     identity="u7871775@anu.edu.au"
-    password="YOUR_PASSWORD_HERE"
+    password="R0b0@2025Fly!"
     phase2="auth=PAP"
     ca_cert="/etc/ssl/certs/ca-certificates.crt"
-    priority=1
-}
-
-# Red Shed Guest (priority 2)
-network={
-    ssid="Red Shed Guest"
-    priority=2
-}
-
-# Sumit_iPhone hotspot (priority 3)
-network={
-    ssid="Sumit_iPhone"
     priority=3
 }
 EOF
-  say "Created $CONF with ANU-Secure → Red Shed Guest → Sumit_iPhone priority"
-  say "⚠️  IMPORTANT: Update 'YOUR_PASSWORD_HERE' with your actual ANU password!"
+  say "Created $CONF with priority: Red Shed Guest -> Sumit_iPhone -> ANU-Secure"
 }
 
 # ---------- DNS helpers ----------
@@ -160,25 +163,8 @@ fix_sshd() {
 }
 
 # ---------- Password configuration helper ----------
-configure_password() {
-  if grep -q "YOUR_PASSWORD_HERE" "$CONF" 2>/dev/null; then
-    warn "⚠️  ANU password not configured!"
-    echo
-    echo "To configure your ANU password, run:"
-    echo "  sudo nano $CONF"
-    echo "  # Replace 'YOUR_PASSWORD_HERE' with your actual ANU password"
-    echo
-    read -p "Do you want to configure the password now? (y/n): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-      echo "Opening $CONF for editing..."
-      sudo nano "$CONF"
-      say "Password configuration complete!"
-    else
-      warn "Continuing without password configuration - ANU-Secure may fail to connect"
-    fi
-  fi
-}
+# No interactive password prompt; ANU-Secure uses EAP-TTLS without stored password.
+configure_password() { true; }
 
 # ---------- Wi-Fi bring-up ----------
 ensure_wpa_conf
@@ -250,7 +236,7 @@ done
 set_dns_for_ssid "$SSID"
 
 echo
-say "Connected ✅"
+say "Connected"
 echo "  SSID : $SSID"
 echo "  IPv4 : $IPV4"
 echo "  DNS  :"
@@ -258,33 +244,33 @@ sed 's/^/    /' /etc/resolv.conf
 echo
 
 # Quick reachability tests
-say "Pinging 8.8.8.8…"
+say "Pinging 8.8.8.8..."
 ping -c 3 -W 2 8.8.8.8 || warn "8.8.8.8 ping failed"
 
-say "Pinging google.com…"
+say "Pinging google.com..."
 if ! ping -c 3 -W 3 google.com; then
   warn "DNS ping failed. Current /etc/resolv.conf:"
   sed 's/^/    /' /etc/resolv.conf
 fi
 
 # SSH fixes (fast handshake + dual ports)
-say "Applying SSH fixes (UseDNS no, GSSAPIAuthentication no; Ports 22 & 2222)…"
+say "Applying SSH fixes (UseDNS no, GSSAPIAuthentication no; Ports 22 & 2222)..."
 fix_sshd
 
 echo
-say "🎉 Setup Complete!"
+say "Setup Complete"
 echo
-say "📡 WiFi Status:"
+say "WiFi Status:"
 echo "  SSID : $SSID"
 echo "  IPv4 : $IPV4"
 echo "  DNS  :"
 sed 's/^/    /' /etc/resolv.conf
 echo
-say "🔐 SSH Access:"
+say "SSH Access:"
 echo "  Port 22  : ssh pi@$IPV4"
 echo "  Port 2222: ssh -p 2222 pi@$IPV4"
 echo
-say "📋 Next Steps:"
+say "Next Steps:"
 echo "  1. Test SSH: ssh pi@$IPV4"
 echo "  2. If port 22 blocked: ssh -p 2222 pi@$IPV4"
 echo "  3. Configure ANU password if not done: sudo nano $CONF"
