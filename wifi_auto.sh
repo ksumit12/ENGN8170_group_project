@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Wi-Fi bring-up & SSH hardening for Raspberry Pi OS (Bookworm Lite)
-# Pref order: ANU-Secure -> eduroam -> Sumit_iPhone
+# Pref order: Red Shed Guest -> Sumit_iPhone -> ANU-Secure
 # - Sets DNS per network (campus from DHCP lease; hotspot uses public DNS)
 # - Ensures sshd is fast (UseDNS no, GSSAPIAuthentication no) and listens on 22 + 2222
 # - Prints SSID, IP, DNS, and ping tests
+# - Creates wpa_supplicant.conf if it doesn't exist
 
 set -euo pipefail
 
@@ -11,7 +12,7 @@ set -euo pipefail
 IF="wlan0"
 CONF="/etc/wpa_supplicant/wpa_supplicant.conf"
 HOTSPOT_SSID="Sumit_iPhone"            # change if needed
-PREF_ORDER=("ANU-Secure" "eduroam" "$HOTSPOT_SSID")
+PREF_ORDER=("Red Shed Guest" "$HOTSPOT_SSID" "ANU-Secure")
 DHCLIENT_LEASES="/var/lib/dhcp/dhclient.leases"
 # --------------------------------
 
@@ -21,6 +22,40 @@ err()  { echo -e "\033[1;31m[x]\033[0m $*" >&2; }
 
 need() { command -v "$1" >/dev/null || { err "Missing: $1 (sudo apt install $1)"; exit 1; }; }
 need wpa_cli; need wpa_supplicant; need ip; need iwgetid; need dhclient; need awk; need sed; need ss; need grep; need tee
+
+# ---------- Create wpa_supplicant.conf if missing ----------
+ensure_wpa_conf() {
+  if [ ! -f "$CONF" ]; then
+    say "Creating $CONF (missing)…"
+    sudo mkdir -p "$(dirname "$CONF")"
+    sudo tee "$CONF" >/dev/null <<'EOF'
+ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+update_config=1
+country=AU
+
+# Red Shed Guest (priority 1)
+network={
+    ssid="Red Shed Guest"
+    priority=1
+}
+
+# Sumit_iPhone hotspot (priority 2)
+network={
+    ssid="Sumit_iPhone"
+    priority=2
+}
+
+# ANU-Secure (priority 3)
+network={
+    ssid="ANU-Secure"
+    priority=3
+}
+EOF
+    say "Created $CONF with Red Shed Guest → Sumit_iPhone → ANU-Secure priority"
+  else
+    say "Using existing $CONF"
+  fi
+}
 
 # ---------- DNS helpers ----------
 _resolv_replace() {
@@ -88,6 +123,7 @@ fix_sshd() {
 }
 
 # ---------- Wi-Fi bring-up ----------
+ensure_wpa_conf
 say "Resetting Wi-Fi ($IF)…"
 sudo rfkill unblock wifi || true
 sudo ip link set "$IF" down || true
