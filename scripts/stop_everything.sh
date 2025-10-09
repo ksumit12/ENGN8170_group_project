@@ -3,7 +3,7 @@
 # Stop Everything Script for Boat Tracking System
 # Kills all boat tracking related processes and frees up ports
 
-echo "🛑 Stopping Boat Tracking System..."
+echo " Stopping Boat Tracking System..."
 
 # Function to kill process by name
 kill_process() {

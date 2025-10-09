@@ -1,0 +1,87 @@
+%%{init: {"theme":"default","themeVariables": {"background":"#ffffff","primaryColor":"#ffffff","primaryTextColor":"#111111","primaryBorderColor":"#374151","lineColor":"#000000","tertiaryColor":"#ffffff"}, "themeCSS": ".mermaid { background-color: #ffffff !important; } svg { background-color: #ffffff !important; }"} }%%
+flowchart LR
+  %% Title: BLE Boat Tracking — Software System Architecture (SE View)
+
+  %% Styles (light theme, high contrast)
+  classDef actor fill:#e3f2fd,stroke:#1e88e5,color:#0d47a1
+  classDef device fill:#e8f0fe,stroke:#1e40af,color:#0f172a
+  classDef function fill:#fffde7,stroke:#fbc02d,color:#5d4037
+  classDef store fill:#f3e5f5,stroke:#8e24aa,color:#4a148c
+  classDef output fill:#e0f7fa,stroke:#00acc1,color:#006064
+  classDef infra fill:#f1f8e9,stroke:#7cb342,color:#2e7d32
+  classDef note fill:#f5f5f5,stroke:#9e9e9e,color:#212121
+
+  %% Actors and Environment
+  Users["Coaches & Managers\n(Phones / Laptops)"]:::actor
+  Boat["Boat with BLE Tag\n(Unique ID • Periodic Signal)"]:::device
+  Net["Local Network\n(Wi‑Fi / Ethernet)"]:::infra
+  Speaker["USB Speaker\n(Entry/Exit Tones)"]:::output
+  MQTT["Optional Integrations\n(MQTT / Webhooks)"]:::infra
+
+  %% Receivers (at the gate)
+  subgraph Receivers["Receivers at Gate (Sensors)"]
+    direction TB
+    Inner["Inner Receiver\n(USB BLE Dongle)\nF1"]:::device
+    Outer["Outer Receiver\n(USB BLE Dongle)\nF1"]:::device
+    Over["Overhead Receiver (opt)\nF1"]:::device
+  end
+
+  %% Edge Gateway (RPi) — core functions
+  subgraph Gateway["Edge Gateway (Raspberry Pi)"]
+    direction TB
+    Ingest["Collect Signals\n(BLE Ingest)\nF1 · P5 (NTP ±10 ms)"]:::function
+    Decide["Decide IN / OUT\n(Entry/Exit Logic)\nF2 · P1≤500 ms · P2≥98%"]:::function
+    Store["Save Current Status & History\n(Database)\nF3 · Retention 30d"]:::store
+    Show["Serve Dashboard\n(Web/API Server)\nF6"]:::function
+    Notify["Notify Locally & Remotely\n(Tones • Webhooks • MQTT)\nF5 · ≤300 ms"]:::function
+    Health["Logs & Health\n(Status/Diagnostics)\nF8"]:::function
+    CFG["Config / Calibration\n(T_rssi, W, T_min, Δt_debounce)\nC1"]:::function
+  end
+
+  %% Views (what people see)
+  subgraph Views["What People See"]
+    direction TB
+    Kiosk["Local Dashboard\n(HDMI Screen)"]:::output
+    Browser["Web Dashboard\n(Any Device)"]:::output
+  end
+
+  %% Typed Interfaces (ICD-style labels)
+  Boat -- "ADV @100±20 ms\nTxPower −4 dBm" --> Inner
+  Boat -- "ADV @100±20 ms" --> Outer
+  Boat -- "ADV @100±20 ms" --> Over
+
+  Inner -- "scan{mac,rssi[dBm],ts[ms]}\nrate≤200/s, jitter≤5 ms" --> Ingest
+  Outer -- "scan{mac,rssi[dBm],ts[ms]}" --> Ingest
+  Over -- "scan{mac,rssi[dBm],ts[ms]}" --> Ingest
+
+  Ingest -- "tracks{mac,rx,Δt,W}" --> Decide
+  CFG -. "parameters" .-> Decide
+
+  Decide -- "event{boat_id,dir,ts,conf}" --> Store
+  Decide -- "event{dir,ts} (≤150 ms)" --> Notify
+
+  Store -- "state{boat_id,state,ts}" --> Show
+  Health -. "health{cpu,temp,dropped[%]} @1 Hz" .-> Show
+
+  Users <-- "Web / Mobile" --> Browser
+  Show <-- "HTTP GET /state\nWS /events (≤300 ms)" --> Browser
+  Show --> Kiosk
+
+  Notify --> Speaker
+  Notify --> MQTT
+  Show <-- "LAN Access" --> Net
+  Gateway <-- "Network" --> Net
+
+  %% Performance Budget (note)
+  NoteBudget["Latency budget: Ingest ≤100 ms + Decide ≤150 ms + Store/Notify ≤200 ms → P1 ≤500 ms"]:::note
+  Ingest -.-> NoteBudget
+  Notify -.-> NoteBudget
+
+  %% Legend / Assumptions
+  subgraph Legend[Legend]
+    direction TB
+    UC["Use-cases: UC-IN (enter), UC-OUT (exit), UC-MULTI (two boats)"]:::note
+    Params["Parameters: T_rssi=−70 dBm, W=2.0 s, T_min=150 ms, Δt_debounce=6 s (test)"]:::note
+    Assump["Assumptions: Tag adv 80–120 ms, NTP skew ≤10 ms, single-writer DB"]:::note
+    VV["V&V hooks: DB Events (accuracy P2), Webhook timestamp (latency P1)"]:::note
+  end

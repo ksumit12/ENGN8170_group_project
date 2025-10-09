@@ -184,14 +184,15 @@ class DualMonitor:
 
         scanner.register_detection_callback(_cb)
 
+        # Start once and keep running until stop is requested. If an error occurs,
+        # back off briefly and retry starting.
         while not self._stop.is_set():
             try:
                 await scanner.start()
-                # keep scanner running; bleak handles callbacks
-                await asyncio.sleep(0.5)
-            except Exception as e:
-                # transient adapter not ready; wait and retry
-                await asyncio.sleep(0.8)
+                # Wait until a stop is requested; callbacks will populate readings continuously
+                await self._stop.wait()
+            except Exception:
+                await asyncio.sleep(1.0)
             finally:
                 with contextlib.suppress(Exception):
                     await scanner.stop()
@@ -262,5 +263,19 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

@@ -125,3 +125,14 @@ python3 boat_tracking_system.py --display-mode both --api-port 8000 --web-port 5
 
 **The system is now ready for production use with comprehensive trip tracking and multiple display options!**
 
+
+
+
+
+
+
+
+
+
+
+

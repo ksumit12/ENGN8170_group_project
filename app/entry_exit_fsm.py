@@ -50,8 +50,8 @@ class BeaconFSM:
 class EntryExitFSM:
     def __init__(self, db_manager: DatabaseManager, 
                  outer_scanner_id: str, inner_scanner_id: str,
-                 rssi_threshold: int = -70, hysteresis: int = 6,
-                 confirm_k: int = 4, confirm_window_s: float = 2.5,
+                 rssi_threshold: int = -70, hysteresis: int = 5,
+                 confirm_k: int = 3, confirm_window_s: float = 2.0,
                  absent_timeout_s: float = 12.0, alpha: float = 0.35):
         self.db = db_manager
         self.outer_scanner_id = (outer_scanner_id or "").strip().lower()
@@ -75,11 +75,10 @@ class EntryExitFSM:
         self.dom_enter_s = 4.0      # sustained inner strong with outer weak
         self.dom_exit_s = 6.0       # sustained outer strong with inner weak
         self.d_clear_s = 3.0     # Duration to be clear before committing exit
-        # Testing-friendly idle timeouts (drop to IDLE faster when no signal)
-        self.t_idle_s = 60.0     # Timeout to IDLE from ENTERED (inactivity)
-        self.t_idle_long_s = 120.0  # Timeout to IDLE from EXITED (long absence)
-        # Anti-bounce: minimum time between successive state flips
-        self.min_transition_gap_s = 6.0
+        # After ENTERED, if there is no movement for 30 minutes, go back to IDLE
+        self.t_idle_s = 1800.0   # Timeout to IDLE from ENTERED (inactivity)
+        # Keep a longer timeout for EXITED before collapsing to IDLE
+        self.t_idle_long_s = 3600.0  # Timeout to IDLE from EXITED (long absence)
         
         # State cache for performance
         self.beacon_states: Dict[str, BeaconFSM] = {}
@@ -296,13 +295,10 @@ class EntryExitFSM:
         # Fast pair-commit using immediate strong-now flags to avoid confirm latency
         fast_commit: Optional[FSMState] = None
         try:
-            # Suppress fast commit if both sides are currently strong (likely near-field bleed)
-            if inner_strong_now and outer_strong_now:
-                fast_commit = None
-            elif is_inner and inner_strong_now and not outer_strong_now and (beacon_state.last_outer_seen is not None) \
+            if is_inner and inner_strong_now and (beacon_state.last_outer_seen is not None) \
                and (now - beacon_state.last_outer_seen).total_seconds() <= self.w_pair_enter_s:
                 fast_commit = FSMState.ENTERED
-            elif is_outer and outer_strong_now and not inner_strong_now and (beacon_state.last_inner_seen is not None) \
+            elif is_outer and outer_strong_now and (beacon_state.last_inner_seen is not None) \
                  and (now - beacon_state.last_inner_seen).total_seconds() <= self.w_pair_exit_s:
                 fast_commit = FSMState.EXITED
         except Exception:
@@ -335,22 +331,8 @@ class EntryExitFSM:
             pass
         
         if new_state != old_state:
-            # Enforce minimum dwell between flips to avoid oscillation
-            if getattr(beacon_state, 'last_transition_at', None) is not None:
-                gap_s = (now - beacon_state.last_transition_at).total_seconds()
-                if gap_s < self.min_transition_gap_s:
-                    try:
-                        logger.debug(f"Suppress flip (gap {gap_s:.1f}s < {self.min_transition_gap_s}s)", "FSM")
-                    except Exception:
-                        pass
-                    return None
             beacon_state.current_state = new_state
             beacon_state.last_update = now
-            # Record last hard transition time
-            try:
-                beacon_state.last_transition_at = now
-            except Exception:
-                pass
             
             # Update timestamps for entry/exit events and log trips
             if new_state == FSMState.ENTERED:

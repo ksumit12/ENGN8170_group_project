@@ -63,3 +63,8 @@ echo "  3. Configure ANU password: sudo nano /etc/wpa_supplicant/wpa_supplicant.
 echo
 echo "🔍 To check Pi IP after WiFi setup:"
 echo "   ssh pi@$PI_IP 'ip addr show wlan0'"
+
+
+
+
+

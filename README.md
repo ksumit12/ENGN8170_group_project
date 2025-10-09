@@ -11,11 +11,81 @@ Multi-beacon BLE system for tracking boat presence and managing beacon-to-boat a
 - **NEW**: Trip tracking and water time analytics
 - **NEW**: Multiple display modes (web dashboard + HDMI terminal display)
 
-## System Architecture
+## Software System Architecture
 
-The diagram below shows the full system from BLE receivers to the web/API and users.
+The diagram below shows the software system from BLE receivers to the web/API and users.
 
-![System Architecture](docs/system_architecture.png)
+![Software System Architecture](docs/system_architecture.png)
+
+<small>Note: This is the software system architecture. It is not a hardware system architecture.</small>
+
+### Stakeholder-Friendly Architecture (Mermaid)
+
+You can also view the same architecture as a live Mermaid diagram (rendered by GitHub/GitLab viewers):
+
+```mermaid
+flowchart LR
+  classDef actor fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
+  classDef device fill:#E3F2FD,stroke:#1565C0,color:#0D47A1
+  classDef function fill:#FFFDE7,stroke:#F9A825,color:#8D6E63
+  classDef store fill:#F3E5F5,stroke:#8E24AA,color:#4A148C
+  classDef output fill:#E0F7FA,stroke:#00838F,color:#006064
+  classDef infra fill:#F1F8E9,stroke:#7CB342,color:#33691E
+
+  Users["Coaches & Managers\n(Phones / Laptops)"]:::actor
+  Boat["Boat with BLE Tag\n(Unique ID • Periodic Signal)"]:::device
+  Net["Local Network\n(Wi‑Fi / Ethernet)"]:::infra
+  Speaker["USB Speaker\n(Entry/Exit Tones)"]:::output
+  MQTT["Optional Integrations\n(MQTT / Webhooks)"]:::infra
+
+  subgraph Receivers["Receivers at Gate (Sensors)"]
+    direction TB
+    Inner["Inner Receiver\n(USB BLE Dongle)"]:::device
+    Outer["Outer Receiver\n(USB BLE Dongle)"]:::device
+    Over["Overhead Receiver (optional)"]:::device
+  end
+
+  subgraph Gateway["Edge Gateway (Raspberry Pi)"]
+    direction TB
+    Ingest["Collect Signals\n(BLE Ingest)"]:::function
+    Decide["Decide IN / OUT\n(Entry/Exit Logic)"]:::function
+    Store["Save Current Status\nand History (Database)"]:::store
+    Show["Serve Dashboard\n(Web/API Server)"]:::function
+    Notify["Notify Locally & Remotely\n(Tones • Webhooks • MQTT)"]:::function
+    Health["Logs & Health\n(Status/Diagnostics)"]:::function
+  end
+
+  subgraph Views["What People See"]
+    direction TB
+    Kiosk["Local Dashboard\n(HDMI Screen)"]:::output
+    Browser["Web Dashboard\n(Any Device)"]:::output
+  end
+
+  Boat -- "BLE signals" --> Inner
+  Boat -- "BLE signals" --> Outer
+  Boat -- "BLE signals" --> Over
+  Inner -- "scan events" --> Ingest
+  Outer -- "scan events" --> Ingest
+  Over -- "scan events" --> Ingest
+  Ingest --> Decide
+  Decide --> Store
+  Decide --> Notify
+  Store --> Show
+  Health -. "metrics & logs" .-> Show
+  Users <-- "Web / Mobile" --> Browser
+  Show <-- "HTTP/API" --> Browser
+  Show --> Kiosk
+  Notify --> Speaker
+  Notify --> MQTT
+  Show <-- "LAN Access" --> Net
+  Gateway <-- "Network" --> Net
+```
+
+Why this design works (non‑technical justification):
+- Two receivers at a narrow passage give reliable direction (inside→outside or outside→inside).
+- The gateway decides once, stores the result, and immediately updates displays and notifications.
+- If the network is slow or down, detections still store locally and show on the screen; integrations catch up later.
+- All parts are replaceable: different receivers, different database, or different dashboard without changing the core idea.
 
 ## Prerequisites
 
