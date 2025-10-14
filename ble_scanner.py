@@ -78,7 +78,7 @@ class ScannerConfig:
     api_key: str
     gate_id: Optional[str] = None  # Logical gate this scanner belongs to
     scan_interval: float = 1.0
-    rssi_threshold: int = -80
+    rssi_threshold: int = None  # Deprecated: threshold now sourced from API FSM settings
     batch_size: int = 10
     dry_run: bool = False  # If True, print payload instead of POST
     active_window_seconds: int = 8  # Consider detections "active" within this many seconds
@@ -162,6 +162,29 @@ class BLEScanner:
         self.detected_beacons: Dict[str, DetectionObservation] = {}
         self.observation_queue: List[DetectionObservation] = []
         self.lock = threading.Lock()
+        # Cached thresholds pulled from API
+        self._api_rssi_threshold: Optional[int] = None
+        self._last_settings_fetch_ts: float = 0.0
+        self._settings_ttl_s: float = 10.0
+
+    def _fetch_fsm_settings(self) -> None:
+        """Fetch FSM settings from API and cache them. Ignore errors silently."""
+        try:
+            import requests, time
+            now = time.time()
+            if now - self._last_settings_fetch_ts < self._settings_ttl_s:
+                return
+            url = f"{self.config.server_url}/api/v1/fsm-settings"
+            resp = requests.get(url, timeout=1.5)
+            if resp.ok:
+                data = resp.json()
+                rt = data.get('rssi_threshold')
+                if isinstance(rt, int):
+                    self._api_rssi_threshold = rt
+                self._last_settings_fetch_ts = now
+        except Exception:
+            # Keep last known value
+            pass
 
     def detection_callback(self, device, advertisement_data):
         """
@@ -175,8 +198,14 @@ class BLEScanner:
         if rssi is None:
             logger.debug(f"Skipping advertisement with no RSSI for {getattr(device, 'address', 'unknown')}", "SCANNER")
             return
+        # Refresh FSM-controlled threshold periodically
+        self._fetch_fsm_settings()
+        # Determine effective threshold: prefer API value; fallback to legacy config default -80
+        base_threshold = self._api_rssi_threshold if isinstance(self._api_rssi_threshold, int) else (
+            self.config.rssi_threshold if isinstance(self.config.rssi_threshold, int) else -80
+        )
         # Apply software bias to emulate scan power tuning
-        effective_threshold = self.config.rssi_threshold + self.config.rssi_bias_db
+        effective_threshold = base_threshold + self.config.rssi_bias_db
         if rssi < effective_threshold:
             logger.debug(
                 f"Ignoring {getattr(device, 'address', 'unknown')} due to RSSI {rssi}dBm < threshold {effective_threshold}dBm",

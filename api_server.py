@@ -287,6 +287,56 @@ class APIServer:
                 'total_in_harbor': len(boats_in_harbor),
                 'timestamp': datetime.now(timezone.utc).isoformat()
             })
+
+        @self.app.route('/api/v1/fsm-settings', methods=['GET'])
+        def get_fsm_settings():
+            """Expose current FSM-related thresholds/settings as the single source of truth
+            for all scanners. Scanners should consume these values and must not override
+            them locally.
+            """
+            try:
+                # Pull core knobs from FSM/engine
+                settings = {
+                    'outer_scanner_id': getattr(self.fsm, 'outer_scanner_id', None),
+                    'inner_scanner_id': getattr(self.fsm, 'inner_scanner_id', None),
+                    'rssi_threshold': getattr(self.fsm, 'rssi_threshold', None),
+                    'hysteresis_db': getattr(self.fsm, 'hysteresis', None),
+                    'pair_windows_s': {
+                        'enter': getattr(self.fsm, 'w_pair_enter_s', None),
+                        'exit': getattr(self.fsm, 'w_pair_exit_s', None),
+                    },
+                    'dominance_windows_s': {
+                        'enter': getattr(self.fsm, 'dom_enter_s', None),
+                        'exit': getattr(self.fsm, 'dom_exit_s', None),
+                    },
+                    'weak_timeout_s': getattr(self.fsm, 'weak_timeout_s', None),
+                    'absent_timeout_s': getattr(self.fsm, 'absent_timeout_s', None),
+                    'rssi_floor_dbm': getattr(self.fsm, 'rssi_floor_dbm', None),
+                    # placeholders for door L/R exposure; FSM may merge calibration here later
+                    'door_lr': {
+                        'enabled': True,
+                        'defaults': {
+                            'active_dbm': -70,
+                            'energy_dbm': -65,
+                            'delta_db': 8,
+                            'dwell_s': 0.20,
+                            'window_s': 1.20,
+                            'tau_min_s': 0.12,
+                            'cooldown_s': 3.0,
+                            'slope_min_db_per_s': 10.0,
+                            'min_peak_sep_s': 0.12,
+                        },
+                        'calibration': {
+                            'lag_positive': 'LEAVE',
+                            'lag_negative': 'ENTER',
+                            'min_confidence_tau_s': 0.12,
+                        }
+                    }
+                }
+                return jsonify(settings)
+            except Exception as e:
+                logger.error(f"Error returning FSM settings: {e}")
+                return jsonify({'error': str(e)}), 500
         
         @self.app.route('/api/v1/presence/<boat_id>', methods=['GET'])
         def get_boat_presence(boat_id):

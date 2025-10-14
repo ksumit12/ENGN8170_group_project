@@ -423,6 +423,33 @@ class BoatTrackingSystem:
                 return jsonify({'error': str(e)}), 500
             return jsonify(rows)
 
+        @self.web_app.route('/api/fsm-profile')
+        def api_fsm_profile():
+            """Report which scanner profile is expected given current Git branch/env.
+            Mirrors the scanner_service auto-selection logic for viewer awareness.
+            """
+            try:
+                import os, subprocess
+                profile = 'inside_outside'
+                branch = os.getenv('GIT_BRANCH')
+                if not branch:
+                    try:
+                        # Determine repo root relative to this file
+                        import pathlib
+                        repo_dir = str(pathlib.Path(__file__).resolve().parent)
+                        branch = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_dir, text=True).strip()
+                    except Exception:
+                        branch = 'main'
+                # Env override
+                forced = os.getenv('FSM_PROFILE')
+                if forced in ('door_left_right', 'inside_outside'):
+                    profile = forced
+                else:
+                    profile = 'inside_outside' if branch == 'main' else 'door_left_right'
+                return jsonify({'branch': branch, 'profile': profile})
+            except Exception as e:
+                return jsonify({'branch': None, 'profile': 'inside_outside', 'error': str(e)})
+
         @self.web_app.route('/fsm')
         def fsm_viewer_page():
             """Simple GUI viewer for FSM states with Mermaid diagram and live updates."""
@@ -2539,6 +2566,13 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
         <div id="diagram"></div>
         <div style="margin-top:10px; font-size:0.9em; color:#9ca3af;">
           <span id="stateStats">Loading...</span>
+        </div>
+        <div id="profilePanel" style="margin-top:10px; font-size:0.9em; color:#9ca3af;">
+          <span>Profile: <b id="profileName">…</b> | Branch: <span id="branchName">…</span></span>
+        </div>
+        <div id="doorLRPanel" style="display:none; margin-top:10px; font-size:0.9em; color:#9ca3af;">
+          <div><b>Door L/R Params</b></div>
+          <pre id="doorLRParams" style="white-space:pre-wrap; background:#0f172a; padding:10px; border-radius:8px; border:1px solid #374151; max-height:200px; overflow:auto;"></pre>
         </div>
       </div>
       <div class="card">

@@ -7,6 +7,8 @@ observations to the API. Keeps hardware concerns isolated from API/FSM.
 import argparse
 import json
 from typing import List, Dict
+import subprocess
+import os
 
 from ble_scanner import BLEScanner, ScannerConfig
 from app.logging_config import get_logger
@@ -34,7 +36,8 @@ def start_scanners_from_config(config: Dict) -> List[BLEScanner]:
                 gate_id=sc.get('gate_id'),
                 server_url=server_base_url,
                 api_key=sc.get('api_key', 'default-key'),
-                rssi_threshold=sc.get('rssi_threshold', -80),
+                # Threshold now controlled by API/FSM; ignore local values
+                rssi_threshold=None,
                 rssi_bias_db=sc.get('rssi_bias_db', 0),
                 scan_interval=sc.get('scan_interval', 1.0),
                 batch_size=sc.get('batch_size', 10),
@@ -55,7 +58,8 @@ def start_scanners_from_config(config: Dict) -> List[BLEScanner]:
                 gate_id=gate_id,
                 server_url=server_base_url,
                 api_key=sc.get('api_key', 'default-key'),
-                rssi_threshold=sc.get('rssi_threshold', -80),
+                # Threshold now controlled by API/FSM; ignore local values
+                rssi_threshold=None,
                 rssi_bias_db=sc.get('rssi_bias_db', 0),
                 scan_interval=sc.get('scan_interval', 1.0),
                 batch_size=sc.get('batch_size', 10),
@@ -76,8 +80,8 @@ essential_example_config = {
             "id": "gate-1",
             "hysteresis": {"enter_dbm": -58, "exit_dbm": -64, "min_hold_ms": 1200},
             "scanners": [
-                {"id": "gate-1-left", "adapter": "hci0", "rssi_threshold": -60, "rssi_bias_db": 0},
-                {"id": "gate-1-right", "adapter": "hci1", "rssi_threshold": -55, "rssi_bias_db": 0}
+                {"id": "gate-1-left", "adapter": "hci0", "rssi_bias_db": 0},
+                {"id": "gate-1-right", "adapter": "hci1", "rssi_bias_db": 0}
             ]
         }
     ]
@@ -86,10 +90,25 @@ essential_example_config = {
 
 def main():
     parser = argparse.ArgumentParser(description="Scanner Service (hardware-only)")
-    parser.add_argument('--config', default='system/json/scanner_config.json', help='Scanner config JSON (supports gates[])')
+    parser.add_argument('--config', default=None, help='Scanner config JSON (supports gates[]). If omitted, auto-selects profile based on Git branch.')
     args = parser.parse_args()
 
-    config = load_config(args.config)
+    # Auto-select profile by Git branch when --config not provided
+    cfg_path = args.config
+    if not cfg_path:
+        branch = os.getenv('GIT_BRANCH')
+        if not branch:
+            try:
+                branch = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=os.path.dirname(__file__) or '.', text=True).strip()
+            except Exception:
+                branch = 'main'
+        if branch == 'main':
+            cfg_path = 'system/json/scanner_config.inside_outside.json'
+        else:
+            cfg_path = 'system/json/scanner_config.door_left_right.json'
+        logger.info(f"Auto-selected scanner profile '{cfg_path}' for branch '{branch}'", "SCANNER")
+
+    config = load_config(cfg_path)
     scanners = start_scanners_from_config(config)
 
     try:
