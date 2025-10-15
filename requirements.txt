@@ -4,3 +4,4 @@ Werkzeug==2.3.7
 requests==2.31.0
 bleak==0.21.1
 asyncio-mqtt==0.16.1
+matplotlib==3.8.4
