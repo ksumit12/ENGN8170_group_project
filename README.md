@@ -398,6 +398,100 @@ python3 tools/network/get_ip.py
 python3 tools/ble_testing/scanner_range_test.py
 ```
 
+## BLE Watchdog (Auto-Recover BLE Adapters)
+
+The system includes a lightweight watchdog that continuously verifies BlueZ and adapters (`hci0`/`hci1`) and auto-recovers if needed (restart bluetooth, reset adapters, stop stray scans).
+
+- Script: `tools/ble_watchdog.py`
+- Service: `ble_watchdog.service` (installed as systemd service)
+
+Install and start automatically with the Wi‑Fi setup helper:
+
+```bash
+sudo bash wifi_auto.sh
+# This will:
+# - Configure Wi‑Fi + SSH
+# - Install prerequisites for BLE
+# - Run a quick BLE sanity test
+# - Install and enable the systemd service: ble_watchdog
+```
+
+Manual install (if needed):
+
+```bash
+sudo cp tools/ble_watchdog.py /usr/local/bin/
+sudo tee /etc/systemd/system/ble_watchdog.service >/dev/null <<'UNIT'
+[Unit]
+Description=BLE Watchdog (monitor hci0/hci1 and auto-recover)
+After=bluetooth.service network-online.target
+Wants=bluetooth.service network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/ble_watchdog.py
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ble-watchdog
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+sudo systemctl daemon-reload
+sudo systemctl enable --now ble_watchdog.service
+```
+
+Check status and logs:
+
+```bash
+systemctl status ble_watchdog
+journalctl -u ble_watchdog -b
+```
+
+## Branch: `door-lr` (Door Left/Right)
+
+This branch focuses on left/right door calibration, scanner mapping, and improving direction classification at the passage.
+
+- Purpose: iterate on `system/json/scanner_config.door_left_right.json` thresholds and validate FSM with real-world sequences.
+- Usage:
+  - Switch branch: `git checkout door-lr`
+  - Ensure config: copy `system/json/scanner_config.door_left_right.json` to `system/json/scanner_config.json`
+  - Start: `python3 boat_tracking_system.py --display-mode web --api-port 8000 --web-port 5000`
+- Notes:
+  - Dashboard is served on `http://<pi-ip>:5000`. If unreachable, confirm the Pi IP and that the process is running (see Troubleshooting section).
+  - BLE watchdog helps keep adapters stable during long runs.
+
+## Calibration (Door L/R)
+
+Use this guided calibration to adapt thresholds and direction mapping to the current doorway geometry and scanner spacing.
+
+- Preconditions:
+  - System is running so detections are logged (`boat_tracking_system.py` and scanners are active)
+  - You have a single powered beacon for calibration
+
+- Run calibration:
+```bash
+source .venv/bin/activate
+python3 calibration/door_lr_calibration.py
+# Follow prompts:
+# - Enter the beacon MAC
+# - Perform multiple dry runs (half ENTER, half LEAVE). You can redo a run.
+```
+
+- Outputs:
+  - Per-session: `calibration/sessions/<timestamp>/door_lr_calib.json` with `run_XX.json` raw data
+  - Latest: `calibration/sessions/latest/door_lr_calib.json`
+
+- Runtime usage:
+  - The API endpoint `/api/v1/fsm-settings` automatically merges the latest calibration (`door_lr.calibration`) so scanners and UI can consume it.
+  - On non-main branches, the system auto-selects the door/LR engine (`app.door_lr_engine:DoorLREngine`) that leverages `app/direction_classifier.py`.
+
+- What the calibration computes now:
+  - Lag-based mapping (`lag_positive` → ENTER/LEAVE, `lag_negative` → opposite)
+  - Minimal confidence `min_confidence_tau_s` and a `consistency_score` across runs
+  - Future work: derive signal thresholds (`active_dbm`, `delta_db`) from empirical distributions
+
 ## Development Notes
 
 - Scanner captures device local name and MAC, forwards to server

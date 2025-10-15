@@ -1,0 +1,21 @@
+[Unit]
+Description=BLE Watchdog (monitor hci0/hci1 and auto-recover)
+After=bluetooth.service network-online.target
+Wants=bluetooth.service network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ENGN8170_group_project
+ExecStart=%h/ENGN8170_group_project/.venv/bin/python %h/ENGN8170_group_project/tools/ble_watchdog.py
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ble-watchdog
+
+[Install]
+WantedBy=multi-user.target
+
+
+
+

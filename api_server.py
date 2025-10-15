@@ -29,7 +29,15 @@ class APIServer:
         CORS(self.app)
         
         self.db = DatabaseManager(db_path)
-        # Build pluggable FSM engine
+        # Build pluggable FSM engine (auto-select door L/R engine on non-main branches)
+        import os, subprocess
+        if not os.getenv('FSM_ENGINE'):
+            try:
+                branch = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=os.path.dirname(__file__) or '.', text=True).strip()
+            except Exception:
+                branch = 'main'
+            if branch != 'main':
+                os.environ['FSM_ENGINE'] = 'app.door_lr_engine:DoorLREngine'
         self.fsm: IFSMEngine = build_fsm_engine(
             db_manager=self.db,
             outer_scanner_id=outer_scanner_id,
@@ -90,6 +98,12 @@ class APIServer:
                         "SCANNER"
                     )
                     
+                    # Log raw detection for calibration analytics
+                    try:
+                        self.db.log_detection(scanner_id, beacon.id, rssi, DetectionState.IDLE)
+                    except Exception:
+                        pass
+
                     # Only process through FSM if beacon is assigned to a boat
                     assigned_boat = self.db.get_boat_by_beacon(beacon.id)
                     if not assigned_boat:
@@ -295,7 +309,7 @@ class APIServer:
             them locally.
             """
             try:
-                # Pull core knobs from FSM/engine
+                # Pull core knobs from FSM/engine and merge calibration if present
                 settings = {
                     'outer_scanner_id': getattr(self.fsm, 'outer_scanner_id', None),
                     'inner_scanner_id': getattr(self.fsm, 'inner_scanner_id', None),
@@ -312,7 +326,6 @@ class APIServer:
                     'weak_timeout_s': getattr(self.fsm, 'weak_timeout_s', None),
                     'absent_timeout_s': getattr(self.fsm, 'absent_timeout_s', None),
                     'rssi_floor_dbm': getattr(self.fsm, 'rssi_floor_dbm', None),
-                    # placeholders for door L/R exposure; FSM may merge calibration here later
                     'door_lr': {
                         'enabled': True,
                         'defaults': {
@@ -326,13 +339,20 @@ class APIServer:
                             'slope_min_db_per_s': 10.0,
                             'min_peak_sep_s': 0.12,
                         },
-                        'calibration': {
-                            'lag_positive': 'LEAVE',
-                            'lag_negative': 'ENTER',
-                            'min_confidence_tau_s': 0.12,
-                        }
+                        'calibration': {}
                     }
                 }
+                # Try to load calibration from calibration/sessions/latest/door_lr_calib.json
+                import os, json
+                calib_path = os.path.join('calibration', 'sessions', 'latest', 'door_lr_calib.json')
+                if not os.path.exists(calib_path):
+                    calib_path = os.path.join('calibration', 'door_lr_calib.json')
+                try:
+                    if os.path.exists(calib_path):
+                        with open(calib_path, 'r') as f:
+                            settings['door_lr']['calibration'] = json.load(f)
+                except Exception as e:
+                    logger.warning(f"Failed to read calibration file: {e}", "FSM")
                 return jsonify(settings)
             except Exception as e:
                 logger.error(f"Error returning FSM settings: {e}")

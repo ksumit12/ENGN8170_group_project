@@ -329,3 +329,62 @@ ble_quick_test || true
 
 say "Done. You can SSH with:  ssh pi@$(hostname -I | awk '{print $1}')"
 warn "If onboard BT was disabled, reboot to fully apply (sudo reboot)."
+
+# ---------- BLE Watchdog Service (systemd) ----------
+install_ble_watchdog_service() {
+  say "Installing BLE watchdog systemd service (auto-recovers BLE adapters)"
+
+  # Determine project directory (assumes this script is run from repo root or within it)
+  local PROJ_DIR
+  if [ -d "$PWD/.git" ] && [ -f "$PWD/tools/ble_watchdog.py" ]; then
+    PROJ_DIR="$PWD"
+  elif [ -f "$(dirname "$0")/tools/ble_watchdog.py" ]; then
+    PROJ_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+  else
+    # Fallback to common location on Pi
+    PROJ_DIR="$HOME/ENGN8170_group_project"
+  fi
+
+  if [ ! -f "$PROJ_DIR/tools/ble_watchdog.py" ]; then
+    warn "ble_watchdog.py not found in $PROJ_DIR/tools — skipping service install"
+    return 0
+  fi
+
+  # Ensure executable bit
+  chmod +x "$PROJ_DIR/tools/ble_watchdog.py" || true
+
+  # Create systemd unit with absolute paths; use system python (no extra deps required)
+  local UNIT=/etc/systemd/system/ble_watchdog.service
+  sudo tee "$UNIT" >/dev/null <<EOF
+[Unit]
+Description=BLE Watchdog (monitor hci0/hci1 and auto-recover)
+After=bluetooth.service network-online.target
+Wants=bluetooth.service network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$PROJ_DIR
+ExecStart=/usr/bin/python3 $PROJ_DIR/tools/ble_watchdog.py
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ble-watchdog
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now ble_watchdog.service
+
+  # Show quick status summary
+  if svc_active ble_watchdog; then
+    say "BLE watchdog: ACTIVE"
+  else
+    warn "BLE watchdog not active yet; check: sudo journalctl -u ble_watchdog -b"
+  fi
+}
+
+# Install and start the BLE watchdog automatically
+install_ble_watchdog_service

@@ -84,25 +84,71 @@ class DirectionClassifier:
 
     # --- helpers (stubs) ---
     def _filter(self, rs: RollingSeries, x_dbm: float, t: float) -> float:
-        # TODO: implement clip->median->EMA; record t,x
+        # Clip very low noise and update series
+        clip = max(x_dbm, rs.clip_dbm)
         rs.times.append(t)
-        rs.values.append(x_dbm)
-        return x_dbm
+        rs.values.append(clip)
+        # Simple EMA
+        if not hasattr(rs, 'ema'):
+            rs.ema = clip
+        else:
+            rs.ema = rs.ema_alpha * clip + (1.0 - rs.ema_alpha) * rs.ema
+        return rs.ema
 
     def _slope(self, rs: RollingSeries, window_s: float = 0.3) -> float:
-        # TODO: implement linear fit slope over window
-        return 0.0
+        if not rs.times:
+            return 0.0
+        t_end = rs.times[-1]
+        xs: List[float] = []
+        ys: List[float] = []
+        for ti, vi in zip(reversed(rs.times), reversed(rs.values)):
+            if t_end - ti > window_s:
+                break
+            xs.append(ti)
+            ys.append(vi)
+        if len(xs) < 2:
+            return 0.0
+        n = float(len(xs))
+        mean_x = sum(xs) / n
+        mean_y = sum(ys) / n
+        num = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+        den = sum((x - mean_x) ** 2 for x in xs) or 1e-6
+        return num / den
 
     def _first_stable_crossing(self, rs: RollingSeries, thr_dbm: float, dwell_s: float) -> Optional[float]:
-        # TODO: implement dwell-based threshold crossing time
+        if not rs.times:
+            return None
+        for i in range(len(rs.values)):
+            if rs.values[i] >= thr_dbm:
+                t0 = rs.times[i]
+                j = i
+                ok = True
+                while j < len(rs.values) and rs.times[j] - t0 <= dwell_s:
+                    if rs.values[j] < thr_dbm:
+                        ok = False
+                        break
+                    j += 1
+                if ok:
+                    return rs.times[i]
         return None
 
     def _xcorr_lag(self, L: RollingSeries, R: RollingSeries, max_lag_s: float = 0.6) -> Optional[float]:
-        # TODO: implement discrete lag scan
-        return None
+        tL = self._first_stable_crossing(L, self.params.energy_dbm, self.params.dwell_s)
+        tR = self._first_stable_crossing(R, self.params.energy_dbm, self.params.dwell_s)
+        if tL is None or tR is None:
+            return None
+        lag = tR - tL
+        if abs(lag) > max_lag_s:
+            return None
+        return lag
 
     def _main_peak_time(self, rs: RollingSeries) -> Optional[float]:
-        # TODO: implement peak detection (simple argmax of filtered series)
+        if not rs.values:
+            return None
+        vmax = max(rs.values)
+        for i, v in enumerate(rs.values):
+            if v == vmax:
+                return rs.times[i]
         return None
 
     def _delta_zero_time(self, L: RollingSeries, R: RollingSeries) -> Optional[float]:
