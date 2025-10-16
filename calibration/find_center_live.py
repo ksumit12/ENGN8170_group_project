@@ -58,9 +58,19 @@ def fetch_recent(db: DatabaseManager, mac: str, seconds: float = 2.0) -> List[Tu
     return [(str(sid or ''), int(rssi)) for sid, rssi in rows]
 
 
-def compute_stats(readings: List[Tuple[str, int]], min_samples: int = 4):
+def compute_stats(readings: List[Tuple[str, int]], min_samples: int = 4, *, offsets: dict | None = None):
     L = [r for sid, r in readings if 'left' in (sid or '').lower() or 'inner' in (sid or '').lower()]
     R = [r for sid, r in readings if 'right' in (sid or '').lower() or 'outer' in (sid or '').lower()]
+    # Apply symmetric offsets if provided to emulate runtime equalization
+    offL = 0.0
+    offR = 0.0
+    if offsets and isinstance(offsets.get('rssi_offsets'), dict):
+        offL = float(offsets['rssi_offsets'].get('door-left', 0.0) or 0.0)
+        offR = float(offsets['rssi_offsets'].get('door-right', 0.0) or 0.0)
+    if L:
+        L = [r - offL for r in L]
+    if R:
+        R = [r - offR for r in R]
     if len(L) < min_samples or len(R) < min_samples:
         return {
             'medL': float(median(L)) if L else None,
@@ -157,6 +167,7 @@ def main() -> None:
     ap.add_argument('--tol-db', type=float, default=2.0, help='Target |L-R| tolerance for center')
     ap.add_argument('--stable-s', type=float, default=5.0, help='Seconds gap must remain within tolerance')
     ap.add_argument('--save-offsets', action='store_true', default=False, help='Write suggested RSSI offsets to calibration/door_lr_calib.json when stable')
+    ap.add_argument('--apply-offsets', action='store_true', default=False, help='Apply saved rssi_offsets from calibration/door_lr_calib.json while computing gap')
     ap.add_argument('--scan', action='store_true', default=False, help='Use direct BLE scan instead of DB')
     ap.add_argument('--inner', default='hci1', help='Inner adapter (when --scan)')
     ap.add_argument('--outer', default='hci0', help='Outer adapter (when --scan)')
@@ -178,7 +189,15 @@ def main() -> None:
                 rs = scan_once(args.inner, args.outer, args.mac, duration_s=args.window_s)
             else:
                 rs = fetch_recent(db, args.mac, seconds=args.window_s)
-            st = compute_stats(rs)
+            # Load offsets once per loop if requested
+            offs = None
+            if args.apply_offsets:
+                try:
+                    with open(os.path.join('calibration','door_lr_calib.json'),'r') as f:
+                        offs = json.load(f)
+                except Exception:
+                    offs = None
+            st = compute_stats(rs, offsets=offs)
             now = time.time()
             if not st or st.get('gap') is None:
                 nL = st.get('nL', 0) if st else 0
