@@ -23,6 +23,12 @@ from __future__ import annotations
 import argparse
 import time
 from statistics import median, pstdev
+import os, json
+from datetime import datetime, timezone
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 from typing import List, Tuple
 
 from app.database_models import DatabaseManager
@@ -144,6 +150,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Door L/R geometry precheck")
     ap.add_argument('--mac', required=True, help='Beacon MAC (AA:BB:...)')
     ap.add_argument('--hold', type=float, default=5.0, help='Seconds per placement')
+    ap.add_argument('--reps', type=int, default=1, help='Repeat center/left/right reps times and summarize')
     ap.add_argument('--scan', action='store_true', default=False, help='Scan directly (no DB)')
     ap.add_argument('--inner', default='hci1', help='Inner adapter for direct scan (requires --scan)')
     ap.add_argument('--outer', default='hci0', help='Outer adapter for direct scan (requires --scan)')
@@ -156,44 +163,83 @@ def main() -> None:
         return
 
     print("Precheck – " + ("scanning directly" if args.scan else "Make sure dual monitor/scanners are posting to the API."))
-    print("Step 1 – CENTER: place beacon on the line, press Enter to start…")
-    input()
-    if args.scan and BleakScanner:
-        center = scan_window(args.inner, args.outer, args.mac, args.hold)
-    else:
-        center = live_meter(db, args.mac, duration_s=args.hold)
-    gap_c, var_c, dom_c = stats(center)
-    print(f"Center: gap={gap_c:.1f} dB, var≈{var_c:.1f} dB, dominant={'LEFT' if dom_c>0 else ('RIGHT' if dom_c<0 else 'NONE')}")
 
-    print("Step 2 – LEFT side: hold closer to LEFT/Inner, press Enter to start…")
-    input()
-    if args.scan and BleakScanner:
-        leftp = scan_window(args.inner, args.outer, args.mac, args.hold)
-    else:
-        leftp = live_meter(db, args.mac, duration_s=args.hold)
-    gap_l, var_l, dom_l = stats(leftp)
-    print(f"Left bias: gap={gap_l:.1f} dB, var≈{var_l:.1f} dB, dominant={'LEFT' if dom_l>0 else 'RIGHT'}")
+    # Session folder
+    ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+    out_dir = os.path.join('calibration', 'sessions', f'precheck_{ts}')
+    os.makedirs(out_dir, exist_ok=True)
 
-    print("Step 3 – RIGHT side: hold closer to RIGHT/Outer, press Enter to start…")
-    input()
-    if args.scan and BleakScanner:
-        rightp = scan_window(args.inner, args.outer, args.mac, args.hold)
-    else:
-        rightp = live_meter(db, args.mac, duration_s=args.hold)
-    gap_r, var_r, dom_r = stats(rightp)
-    print(f"Right bias: gap={gap_r:.1f} dB, var≈{var_r:.1f} dB, dominant={'LEFT' if dom_r>0 else 'RIGHT'}")
+    center_gaps: list[float] = []
+    center_dom: list[str] = []
+    left_gaps: list[float] = []
+    right_gaps: list[float] = []
 
-    # Verdict rules
-    ok_center = gap_c < 3.0
-    ok_left = gap_l >= 6.0 and dom_l > 0
-    ok_right = gap_r >= 6.0 and dom_r < 0
-    all_ok = ok_center and ok_left and ok_right
+    for i in range(1, max(1, args.reps) + 1):
+        print(f"\n[Rep {i}/{args.reps}] Step 1 – CENTER: place beacon on the line, press Enter to start…")
+        input()
+        center = scan_window(args.inner, args.outer, args.mac, args.hold) if (args.scan and BleakScanner) else live_meter(db, args.mac, duration_s=args.hold)
+        gap_c, var_c, dom_c = stats(center)
+        dom_c_lbl = 'LEFT' if dom_c>0 else ('RIGHT' if dom_c<0 else 'NONE')
+        center_gaps.append(gap_c); center_dom.append(dom_c_lbl)
+        print(f"Center: gap={gap_c:.1f} dB, var≈{var_c:.1f} dB, dominant={dom_c_lbl}")
 
-    print("\nVerdict:")
-    print(f"  Center gap < 3 dB …… {'OK' if ok_center else 'NO'} (got {gap_c:.1f} dB)")
-    print(f"  Left bias gap ≥ 6 dB …… {'OK' if ok_left else 'NO'} (got {gap_l:.1f} dB)")
-    print(f"  Right bias gap ≥ 6 dB … {'OK' if ok_right else 'NO'} (got {gap_r:.1f} dB)")
+        print("Step 2 – LEFT side: hold closer to LEFT/Inner, press Enter to start…")
+        input()
+        leftp = scan_window(args.inner, args.outer, args.mac, args.hold) if (args.scan and BleakScanner) else live_meter(db, args.mac, duration_s=args.hold)
+        gap_l, var_l, dom_l = stats(leftp)
+        left_gaps.append(gap_l)
+        print(f"Left bias: gap={gap_l:.1f} dB, var≈{var_l:.1f} dB, dominant={'LEFT' if dom_l>0 else 'RIGHT'}")
+
+        print("Step 3 – RIGHT side: hold closer to RIGHT/Outer, press Enter to start…")
+        input()
+        rightp = scan_window(args.inner, args.outer, args.mac, args.hold) if (args.scan and BleakScanner) else live_meter(db, args.mac, duration_s=args.hold)
+        gap_r, var_r, dom_r = stats(rightp)
+        right_gaps.append(gap_r)
+        print(f"Right bias: gap={gap_r:.1f} dB, var≈{var_r:.1f} dB, dominant={'LEFT' if dom_r>0 else 'RIGHT'}")
+
+    # Summary
+    total = max(1, args.reps)
+    ok_center = sum(1 for g in center_gaps if g < 3.0)
+    ok_left = sum(1 for g in left_gaps if g >= 6.0)
+    ok_right = sum(1 for g in right_gaps if g >= 6.0)
+    all_ok = (ok_center==total and ok_left==total and ok_right==total)
+
+    print("\nSummary across reps:")
+    print(f"  Center OK (<3 dB): {ok_center}/{total}")
+    print(f"  Left OK (≥6 dB):   {ok_left}/{total}")
+    print(f"  Right OK (≥6 dB):  {ok_right}/{total}")
     print(f"\nReady for calibration: {'YES' if all_ok else 'NO'}")
+
+    # Save JSON
+    with open(os.path.join(out_dir, 'summary.json'), 'w') as f:
+        json.dump({
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'mac': args.mac,
+            'reps': total,
+            'center_gaps_db': center_gaps,
+            'center_dominant': center_dom,
+            'left_gaps_db': left_gaps,
+            'right_gaps_db': right_gaps,
+            'ok_center': ok_center,
+            'ok_left': ok_left,
+            'ok_right': ok_right,
+            'ready': all_ok
+        }, f, indent=2)
+
+    # Plots
+    plt.figure(figsize=(5,4))
+    labels=['Center<3','Left≥6','Right≥6']
+    vals=[ok_center/total, ok_left/total, ok_right/total]
+    plt.bar(labels, vals, color=['tab:blue','tab:green','tab:red'])
+    plt.ylim(0,1); plt.ylabel('Fraction OK'); plt.title('Precheck consistency')
+    plt.tight_layout(); plt.savefig(os.path.join(out_dir, 'consistency_bars.png'), dpi=140); plt.close()
+
+    plt.figure(figsize=(6,4)); plt.hist(center_gaps, bins=min(10,total), alpha=0.8); plt.axvline(3.0, color='k', ls='--');
+    plt.xlabel('Center gap (dB)'); plt.ylabel('Count'); plt.tight_layout(); plt.savefig(os.path.join(out_dir,'center_gap_hist.png'), dpi=140); plt.close()
+    plt.figure(figsize=(6,4)); plt.hist(left_gaps, bins=min(10,total), alpha=0.8, color='tab:green'); plt.axvline(6.0, color='k', ls='--');
+    plt.xlabel('Left gap (dB)'); plt.ylabel('Count'); plt.tight_layout(); plt.savefig(os.path.join(out_dir,'left_gap_hist.png'), dpi=140); plt.close()
+    plt.figure(figsize=(6,4)); plt.hist(right_gaps, bins=min(10,total), alpha=0.8, color='tab:red'); plt.axvline(6.0, color='k', ls='--');
+    plt.xlabel('Right gap (dB)'); plt.ylabel('Count'); plt.tight_layout(); plt.savefig(os.path.join(out_dir,'right_gap_hist.png'), dpi=140); plt.close()
 
 
 if __name__ == '__main__':
