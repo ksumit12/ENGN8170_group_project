@@ -25,6 +25,7 @@ def main():
     ap.add_argument('--runs', type=int, default=8, help='Total dry runs (half ENTER, half LEAVE)')
     ap.add_argument('--alternate', action='store_true', default=True, help='Alternate directions ENTER/LEAVE automatically')
     ap.add_argument('--outdir', default='calibration/sessions')
+    ap.add_argument('--apply-offsets', action='store_true', default=False, help='Apply learned RSSI offsets from calibration/door_lr_calib.json (if present) to final output')
     args = ap.parse_args()
 
     # Prepare session folder
@@ -298,6 +299,21 @@ def main():
         'separation_score': separation_score,
         'run_summaries': run_summaries,
     }
+
+    # If existing calibration offsets exist and --apply-offsets, merge them in so runtime can consume one file
+    if args.apply_offsets:
+        calib_path = os.path.join('calibration', 'door_lr_calib.json')
+        try:
+            if os.path.exists(calib_path):
+                with open(calib_path, 'r') as f:
+                    calib = json.load(f)
+                if isinstance(calib, dict):
+                    # Only copy known keys to avoid clobbering
+                    for k in ('rssi_offsets','delta_db','active_dbm','energy_dbm','window_s','dwell_s','slope_min_db_per_s','min_peak_sep_s','cooldown_s'):
+                        if k in calib:
+                            summary[k] = calib[k]
+        except Exception:
+            pass
 
     # Aggregate plots: lag histogram & per-direction consistency
     if lags:
