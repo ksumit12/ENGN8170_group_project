@@ -23,6 +23,7 @@ def main():
     ap.add_argument('--samples', type=int, default=600)
     ap.add_argument('--max-lag', type=float, default=0.6)
     ap.add_argument('--runs', type=int, default=8, help='Total dry runs (half ENTER, half LEAVE)')
+    ap.add_argument('--alternate', action='store_true', default=True, help='Alternate directions ENTER/LEAVE automatically')
     ap.add_argument('--outdir', default='calibration/sessions')
     args = ap.parse_args()
 
@@ -31,6 +32,16 @@ def main():
     session_dir = os.path.join(args.outdir, ts)
     os.makedirs(session_dir, exist_ok=True)
 
+    # Clean previous latest
+    latest_dir = os.path.join(args.outdir, 'latest')
+    if os.path.isdir(latest_dir):
+        try:
+            import shutil
+            shutil.rmtree(latest_dir)
+        except Exception:
+            pass
+    os.makedirs(latest_dir, exist_ok=True)
+
     print("Door L/R Calibration")
     print("- Perform dry runs with a single beacon.")
     print("- Half ENTER (outside->inside), half LEAVE (inside->outside).")
@@ -38,18 +49,23 @@ def main():
 
     # Minimal interactive: operator provides the active beacon MAC and which direction for each run
     beacon_mac = input("Enter beacon MAC to calibrate (format AA:BB:...): ").strip()
+    # Determine directions: alternate ENTER, LEAVE, ENTER, ...
     directions = []
-    for i in range(args.runs):
-        while True:
-            d = input(f"Run {i+1}/{args.runs} direction [ENTER/LEAVE or R to redo previous]: ").strip().upper()
-            if d == 'R' and directions:
-                directions.pop()
-                i -= 2  # redo previous iteration
-                break
-            if d in ('ENTER', 'LEAVE'):
-                directions.append(d)
-                break
-            print("Please type ENTER or LEAVE")
+    if args.alternate:
+        for i in range(args.runs):
+            directions.append('ENTER' if i % 2 == 0 else 'LEAVE')
+    else:
+        for i in range(args.runs):
+            while True:
+                d = input(f"Run {i+1}/{args.runs} direction [ENTER/LEAVE or R to redo previous]: ").strip().upper()
+                if d == 'R' and directions:
+                    directions.pop()
+                    i -= 2
+                    break
+                if d in ('ENTER', 'LEAVE'):
+                    directions.append(d)
+                    break
+                print("Please type ENTER or LEAVE")
 
     # Load detections for each run window by prompting operator to press Enter to start/stop
     from app.database_models import DatabaseManager
@@ -59,9 +75,9 @@ def main():
     plots_dir = os.path.join(session_dir, 'plots')
     os.makedirs(plots_dir, exist_ok=True)
     for idx, d in enumerate(directions, start=1):
-        input(f"Prepare for dry run {idx} ({d}). Press Enter to START...")
+        input(f"Prepare for dry run {idx}/{len(directions)} ({d}). Ensure only the calibration beacon is active. Press Enter to START...")
         t_start = datetime.now(timezone.utc)
-        input("Walk through the door now with the beacon. Press Enter to STOP...")
+        input("Walk steadily along the marked path now. Press Enter to STOP when you clear the passage...")
         t_end = datetime.now(timezone.utc)
 
         # Query detections in window for this beacon
@@ -162,6 +178,26 @@ def main():
     tau_min = round(min(tau_vals), 3) if tau_vals else 0.12
     consistency = round((pos + neg) / max(len(run_summaries), 1), 2)
 
+    # Heuristic separation/geometry score: combines absolute lag and near-side RSSI advantage
+    # Larger |lag| and larger median RSSI gap imply better separability
+    def _rssigap(run_rows):
+        L = [int(r[1]) for r in run_rows if 'left' in (r[0] or '').lower() or 'inner' in (r[0] or '').lower()]
+        R = [int(r[1]) for r in run_rows if 'right' in (r[0] or '').lower() or 'outer' in (r[0] or '').lower()]
+        if not L or not R:
+            return 0.0
+        import statistics
+        return abs(statistics.median(L) - statistics.median(R))
+
+    median_gap = 0.0
+    try:
+        import statistics
+        median_gap = statistics.median([_rssigap(json.load(open(os.path.join(session_dir, f'run_{i:02d}.json')))["detections"]) for i in range(1, len(directions)+1)])
+    except Exception:
+        pass
+
+    lag_abs_mean = round(mean([abs(l) for l in lags if l is not None]), 3) if lags else 0.0
+    separation_score = round(min(1.0, (lag_abs_mean / 0.3) * 0.6 + (min(median_gap, 12) / 12.0) * 0.4), 2)
+
     summary = {
         'created_at': datetime.now(timezone.utc).isoformat(),
         'beacon_mac': beacon_mac,
@@ -170,6 +206,9 @@ def main():
         'lag_negative': lag_negative,
         'min_confidence_tau_s': tau_min,
         'consistency_score': consistency,
+        'lag_abs_mean_s': lag_abs_mean,
+        'median_rssi_gap_db': round(median_gap, 1),
+        'separation_score': separation_score,
         'run_summaries': run_summaries,
     }
 
@@ -212,8 +251,6 @@ def main():
         for i, r in enumerate(run_summaries, start=1):
             f.write(f"{i},{r['direction']},{r['t_start']},{r['t_end']},{'' if r['lag_s'] is None else r['lag_s']},{r['leader']},{r['samples']},{r['score']}\n")
 
-    latest_dir = os.path.join(args.outdir, 'latest')
-    os.makedirs(latest_dir, exist_ok=True)
     with open(os.path.join(latest_dir, 'door_lr_calib.json'), 'w') as f:
         json.dump(summary, f, indent=2)
 
