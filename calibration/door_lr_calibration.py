@@ -74,10 +74,77 @@ def main():
     run_summaries = []
     plots_dir = os.path.join(session_dir, 'plots')
     os.makedirs(plots_dir, exist_ok=True)
+    def _signal_percent(rssi_dbm: float) -> int:
+        # Map -100 dBm → 0%, -40 dBm → 100%
+        if rssi_dbm is None:
+            return 0
+        pct = int(max(0, min(100, round((rssi_dbm + 100) * (100.0 / 60.0)))))
+        return pct
+
     for idx, d in enumerate(directions, start=1):
-        input(f"Prepare for dry run {idx}/{len(directions)} ({d}). Ensure only the calibration beacon is active. Press Enter to START...")
+        # Live pre-roll indicator: show current RSSI briefly and prompt
+        print(f"\nPrepare for dry run {idx}/{len(directions)} ({d}). Ensure only the calibration beacon is active.")
+        print("Keep beacon AWAY first. Watching signal for 3s (aim ≈0%).", end="", flush=True)
+        from time import sleep
+        for _ in range(6):
+            # Check last 1s readings from DB
+            with db.get_connection() as conn:
+                c = conn.cursor()
+                c.execute(
+                    """
+                    SELECT d.rssi, d.scanner_id, strftime('%s', d.timestamp) AS ts
+                    FROM detections d
+                    JOIN beacons b ON b.id = d.beacon_id
+                    WHERE b.mac_address = ? AND d.timestamp > datetime('now','-1 seconds')
+                    ORDER BY d.timestamp DESC LIMIT 20
+                    """,
+                    (beacon_mac,),
+                )
+                r = c.fetchall()
+            if r:
+                vals = [int(row[0]) for row in r]
+                avg = sum(vals) / max(1, len(vals))
+                print(f"\rKeep beacon AWAY first. Watching signal for 3s (aim ≈0%). Now: { _signal_percent(avg) }%   ", end="", flush=True)
+            else:
+                print(f"\rKeep beacon AWAY first. Watching signal for 3s (aim ≈0%). Now: 0%   ", end="", flush=True)
+            sleep(0.5)
+        print("\nBring beacon to the path. When ready, press Enter to START…")
+        input()
         t_start = datetime.now(timezone.utc)
-        input("Walk steadily along the marked path now. Press Enter to STOP when you clear the passage...")
+        # During run, show live signal percent on one updating line
+        print("Walk steadily along the marked path now. Showing live signal (%). Press Enter to STOP when clear…")
+        import threading
+        stop_flag = {'x': False}
+        def _ticker():
+            from time import sleep as _sleep
+            while not stop_flag['x']:
+                with db.get_connection() as conn:
+                    c = conn.cursor()
+                    c.execute(
+                        """
+                        SELECT d.rssi FROM detections d
+                        JOIN beacons b ON b.id = d.beacon_id
+                        WHERE b.mac_address = ? AND d.timestamp > datetime('now','-1 seconds')
+                        ORDER BY d.timestamp DESC LIMIT 30
+                        """,
+                        (beacon_mac,),
+                    )
+                    r = c.fetchall()
+                if r:
+                    vals = [int(x[0]) for x in r]
+                    avg = sum(vals) / max(1, len(vals))
+                    print(f"\rSignal: {_signal_percent(avg)}%    ", end="", flush=True)
+                else:
+                    print(f"\rSignal: 0%    ", end="", flush=True)
+                _sleep(0.5)
+        th = threading.Thread(target=_ticker, daemon=True)
+        th.start()
+        input()
+        stop_flag['x'] = True
+        try:
+            th.join(timeout=1.0)
+        except Exception:
+            pass
         t_end = datetime.now(timezone.utc)
 
         # Query detections in window for this beacon
@@ -117,6 +184,23 @@ def main():
                 leader = 'LEFT'
             elif lag < 0:
                 leader = 'RIGHT'
+        # Movement and geometry validation to avoid timing artifacts on static or colocated setups
+        import statistics
+        Lvar = statistics.pstdev([p[1] for p in left_points]) if left_points else 0.0
+        Rvar = statistics.pstdev([p[1] for p in right_points]) if right_points else 0.0
+        med_gap = 0.0
+        try:
+            Lmed = statistics.median([p[1] for p in left_points]) if left_points else None
+            Rmed = statistics.median([p[1] for p in right_points]) if right_points else None
+            if Lmed is not None and Rmed is not None:
+                med_gap = abs(Lmed - Rmed)
+        except Exception:
+            med_gap = 0.0
+        # Heuristics: require some variance or a minimum median gap to accept lag
+        valid_motion = (Lvar > 1.5 or Rvar > 1.5) or (med_gap >= 4.0)
+        if not valid_motion:
+            lag = None
+            leader = None
         score = 1.0 if lag is not None else 0.0
         run_summaries.append({
             'direction': d,
@@ -196,7 +280,10 @@ def main():
         pass
 
     lag_abs_mean = round(mean([abs(l) for l in lags if l is not None]), 3) if lags else 0.0
-    separation_score = round(min(1.0, (lag_abs_mean / 0.3) * 0.6 + (min(median_gap, 12) / 12.0) * 0.4), 2)
+    # Gate separation by consistency/geometry so colocated/static cases cannot score high
+    sep_core = (lag_abs_mean / 0.3) * 0.6 + (min(median_gap, 12) / 12.0) * 0.4
+    sep_core = max(0.0, min(1.0, sep_core))
+    separation_score = round(sep_core * (1.0 if consistency >= 0.7 and median_gap >= 4.0 else 0.2), 2)
 
     summary = {
         'created_at': datetime.now(timezone.utc).isoformat(),
