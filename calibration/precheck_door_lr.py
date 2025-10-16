@@ -63,18 +63,25 @@ def fetch_recent(db: DatabaseManager, mac: str, seconds: float = 1.0) -> List[Tu
     return [(str(sid or ''), int(rssi)) for sid, rssi in rows]
 
 
-def stats(readings: List[Tuple[str, int]]) -> Tuple[float, float, float]:
-    L = [r for sid, r in readings if 'left' in sid.lower() or 'inner' in sid.lower()]
-    R = [r for sid, r in readings if 'right' in sid.lower() or 'outer' in sid.lower()]
-    if not L or not R:
-        return 0.0, 0.0, 0.0
+def stats(readings: List[Tuple[str, int]], *, min_samples: int = 3) -> Tuple[float, float, float, int, int]:
+    """Return (gap_db, variance_db, dominance, n_left, n_right).
+
+    dominance: +1 for LEFT>RIGHT, -1 for RIGHT>LEFT, 0 for no data or tie.
+    When either side has < min_samples, treat dominance as NONE (0) and gap=0.
+    """
+    L = [r for sid, r in readings if 'left' in (sid or '').lower() or 'inner' in (sid or '').lower()]
+    R = [r for sid, r in readings if 'right' in (sid or '').lower() or 'outer' in (sid or '').lower()]
+    if len(L) < min_samples or len(R) < min_samples:
+        return 0.0, 0.0, 0.0, len(L), len(R)
     try:
-        gap = abs(median(L) - median(R))
+        medL = median(L)
+        medR = median(R)
+        gap = abs(medL - medR)
         v = (pstdev(L) + pstdev(R)) / 2.0
-        dom = 1.0 if median(L) > median(R) else -1.0
-        return gap, v, dom
+        dom = 1.0 if medL > medR else (-1.0 if medR > medL else 0.0)
+        return gap, v, dom, len(L), len(R)
     except Exception:
-        return 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, len(L), len(R)
 
 
 def live_meter(db: DatabaseManager, mac: str, duration_s: float = 5.0) -> List[Tuple[str, int]]:
@@ -110,16 +117,21 @@ def scan_window(inner_adapter: str, outer_adapter: str, mac: str, duration_s: fl
             if (device.address or '').lower() != mac.lower():
                 return
             try:
-                rssi = int(device.rssi or -100)
+                # Prefer AdvertisementData.rssi; fall back to device.rssi when missing
+                rssi_val = getattr(advertisement_data, 'rssi', None)
+                if rssi_val is None:
+                    rssi_val = getattr(device, 'rssi', None)
+                if rssi_val is None:
+                    return  # skip no-signal samples to avoid bias
+                rssi = int(rssi_val)
             except Exception:
-                rssi = -100
+                return
             readings.append((store_scanner_id, rssi))
         return _cb
 
-    inner = BleakScanner(adapter=inner_adapter)
-    outer = BleakScanner(adapter=outer_adapter)
-    inner.register_detection_callback(make_cb('door-left'))
-    outer.register_detection_callback(make_cb('door-right'))
+    # Use modern BleakScanner API with detection_callback to avoid deprecation warnings
+    inner = BleakScanner(detection_callback=make_cb('door-left'), adapter=inner_adapter)
+    outer = BleakScanner(detection_callback=make_cb('door-right'), adapter=outer_adapter)
 
     import asyncio
     async def run_once():
@@ -154,6 +166,7 @@ def main() -> None:
     ap.add_argument('--scan', action='store_true', default=False, help='Scan directly (no DB)')
     ap.add_argument('--inner', default='hci1', help='Inner adapter for direct scan (requires --scan)')
     ap.add_argument('--outer', default='hci0', help='Outer adapter for direct scan (requires --scan)')
+    ap.add_argument('--precision-tol-db', type=float, default=1.0, help='Precision tolerance window around median gap (±dB)')
     args = ap.parse_args()
 
     db = DatabaseManager()
@@ -178,24 +191,26 @@ def main() -> None:
         print(f"\n[Rep {i}/{args.reps}] Step 1 – CENTER: place beacon on the line, press Enter to start…")
         input()
         center = scan_window(args.inner, args.outer, args.mac, args.hold) if (args.scan and BleakScanner) else live_meter(db, args.mac, duration_s=args.hold)
-        gap_c, var_c, dom_c = stats(center)
+        gap_c, var_c, dom_c, nL_c, nR_c = stats(center)
         dom_c_lbl = 'LEFT' if dom_c>0 else ('RIGHT' if dom_c<0 else 'NONE')
         center_gaps.append(gap_c); center_dom.append(dom_c_lbl)
-        print(f"Center: gap={gap_c:.1f} dB, var≈{var_c:.1f} dB, dominant={dom_c_lbl}")
+        print(f"Center: gap={gap_c:.1f} dB, var≈{var_c:.1f} dB, dominant={dom_c_lbl} (nL={nL_c}, nR={nR_c})")
 
         print("Step 2 – LEFT side: hold closer to LEFT/Inner, press Enter to start…")
         input()
         leftp = scan_window(args.inner, args.outer, args.mac, args.hold) if (args.scan and BleakScanner) else live_meter(db, args.mac, duration_s=args.hold)
-        gap_l, var_l, dom_l = stats(leftp)
+        gap_l, var_l, dom_l, nL_l, nR_l = stats(leftp)
         left_gaps.append(gap_l)
-        print(f"Left bias: gap={gap_l:.1f} dB, var≈{var_l:.1f} dB, dominant={'LEFT' if dom_l>0 else 'RIGHT'}")
+        dom_l_lbl = 'LEFT' if dom_l>0 else ('RIGHT' if dom_l<0 else 'NONE')
+        print(f"Left bias: gap={gap_l:.1f} dB, var≈{var_l:.1f} dB, dominant={dom_l_lbl} (nL={nL_l}, nR={nR_l})")
 
         print("Step 3 – RIGHT side: hold closer to RIGHT/Outer, press Enter to start…")
         input()
         rightp = scan_window(args.inner, args.outer, args.mac, args.hold) if (args.scan and BleakScanner) else live_meter(db, args.mac, duration_s=args.hold)
-        gap_r, var_r, dom_r = stats(rightp)
+        gap_r, var_r, dom_r, nL_r, nR_r = stats(rightp)
         right_gaps.append(gap_r)
-        print(f"Right bias: gap={gap_r:.1f} dB, var≈{var_r:.1f} dB, dominant={'LEFT' if dom_r>0 else 'RIGHT'}")
+        dom_r_lbl = 'LEFT' if dom_r>0 else ('RIGHT' if dom_r<0 else 'NONE')
+        print(f"Right bias: gap={gap_r:.1f} dB, var≈{var_r:.1f} dB, dominant={dom_r_lbl} (nL={nL_r}, nR={nR_r})")
 
     # Summary
     total = max(1, args.reps)
@@ -210,6 +225,35 @@ def main() -> None:
     print(f"  Right OK (≥6 dB):  {ok_right}/{total}")
     print(f"\nReady for calibration: {'YES' if all_ok else 'NO'}")
 
+    # Precision metrics: fraction within ±tol of the median gap per placement
+    tol = max(0.0, float(args.precision_tol_db))
+    def precision_fraction(vals: list[float]) -> float:
+        if not vals:
+            return 0.0
+        import statistics as _st
+        m = _st.median(vals)
+        hits = sum(1 for v in vals if abs(v - m) <= tol)
+        return hits / max(1, len(vals))
+    prec_center = precision_fraction(center_gaps)
+    prec_left = precision_fraction(left_gaps)
+    prec_right = precision_fraction(right_gaps)
+
+    # Dominance precision (how consistently the same side dominates at center)
+    dom_mode = None
+    if center_dom:
+        from collections import Counter as _Counter
+        cnt = _Counter(center_dom)
+        dom_mode, mode_n = max(cnt.items(), key=lambda kv: kv[1])
+        dom_prec = mode_n / max(1, len(center_dom))
+    else:
+        dom_prec = 0.0
+    print("\nPrecision (repeatability):")
+    print(f"  Center precision (±{tol:.1f} dB of median): {prec_center*100:.1f}%")
+    print(f"  Left precision   (±{tol:.1f} dB of median): {prec_left*100:.1f}%")
+    print(f"  Right precision  (±{tol:.1f} dB of median): {prec_right*100:.1f}%")
+    if dom_mode:
+        print(f"  Center dominance consistency: {dom_prec*100:.1f}% (mode={dom_mode})")
+
     # Save JSON
     with open(os.path.join(out_dir, 'summary.json'), 'w') as f:
         json.dump({
@@ -223,7 +267,13 @@ def main() -> None:
             'ok_center': ok_center,
             'ok_left': ok_left,
             'ok_right': ok_right,
-            'ready': all_ok
+            'ready': all_ok,
+            'precision_tol_db': tol,
+            'precision_center': prec_center,
+            'precision_left': prec_left,
+            'precision_right': prec_right,
+            'dominance_mode': dom_mode,
+            'dominance_precision': dom_prec
         }, f, indent=2)
 
     # Plots
@@ -240,6 +290,14 @@ def main() -> None:
     plt.xlabel('Left gap (dB)'); plt.ylabel('Count'); plt.tight_layout(); plt.savefig(os.path.join(out_dir,'left_gap_hist.png'), dpi=140); plt.close()
     plt.figure(figsize=(6,4)); plt.hist(right_gaps, bins=min(10,total), alpha=0.8, color='tab:red'); plt.axvline(6.0, color='k', ls='--');
     plt.xlabel('Right gap (dB)'); plt.ylabel('Count'); plt.tight_layout(); plt.savefig(os.path.join(out_dir,'right_gap_hist.png'), dpi=140); plt.close()
+
+    # Precision bars plot
+    plt.figure(figsize=(5,4))
+    labels=['Center','Left','Right']
+    vals=[prec_center, prec_left, prec_right]
+    plt.bar(labels, vals, color=['tab:blue','tab:green','tab:red'])
+    plt.ylim(0,1); plt.ylabel('Precision (fraction within ±%.1f dB)' % tol); plt.title('Repeatability precision')
+    plt.tight_layout(); plt.savefig(os.path.join(out_dir, 'precision_bars.png'), dpi=140); plt.close()
 
 
 if __name__ == '__main__':
