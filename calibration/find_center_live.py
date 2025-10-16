@@ -30,7 +30,7 @@ import os
 import sys
 import time
 from statistics import median, pstdev
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from app.database_models import DatabaseManager
 
@@ -58,7 +58,7 @@ def fetch_recent(db: DatabaseManager, mac: str, seconds: float = 2.0) -> List[Tu
     return [(str(sid or ''), int(rssi)) for sid, rssi in rows]
 
 
-def compute_stats(readings: List[Tuple[str, int]], min_samples: int = 4, *, offsets: dict | None = None):
+def compute_stats(readings: List[Tuple[str, int]], min_samples: int = 4, *, offsets: Optional[dict] = None):
     L = [r for sid, r in readings if 'left' in (sid or '').lower() or 'inner' in (sid or '').lower()]
     R = [r for sid, r in readings if 'right' in (sid or '').lower() or 'outer' in (sid or '').lower()]
     # Apply symmetric offsets if provided to emulate runtime equalization
