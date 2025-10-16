@@ -19,6 +19,7 @@ kill_process() {
         pids=$(pgrep -f "$process_name")
         if [ -n "$pids" ]; then
             echo "  Force killing $process_name (PIDs: $pids)"
+            
             kill -9 $pids 2>/dev/null
         fi
     else
@@ -69,7 +70,7 @@ remaining=$(pgrep -f "boat_tracking_system\|api_server\|scanner_service\|ble_sca
 if [ "$remaining" -eq 0 ]; then
     echo "✅ All processes stopped successfully!"
 else
-    echo "⚠️  Some processes may still be running:"
+    echo "  Some processes may still be running:"
     pgrep -f "boat_tracking_system\|api_server\|scanner_service\|ble_scanner\|sim_run_simulator\|ngrok" | xargs ps -p
     echo "💡 You may need to run: sudo pkill -f 'boat_tracking_system|api_server|scanner_service|ble_scanner|sim_run_simulator|ngrok'"
 fi
