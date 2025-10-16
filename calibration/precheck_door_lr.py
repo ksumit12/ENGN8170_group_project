@@ -163,7 +163,7 @@ def main() -> None:
     else:
         center = live_meter(db, args.mac, duration_s=args.hold)
     gap_c, var_c, dom_c = stats(center)
-    print(f"Center: gap={gap_c:.1f} dB, var≈{var_c:.1f} dB")
+    print(f"Center: gap={gap_c:.1f} dB, var≈{var_c:.1f} dB, dominant={'LEFT' if dom_c>0 else ('RIGHT' if dom_c<0 else 'NONE')}")
 
     print("Step 2 – LEFT side: hold closer to LEFT/Inner, press Enter to start…")
     input()
