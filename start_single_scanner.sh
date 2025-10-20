@@ -27,5 +27,11 @@ if [ -d ".venv" ]; then
 fi
 
 # Start the system - it will auto-start the scanner
+# Press Ctrl+C to stop, or use ./stop_scanner.sh from another terminal
+echo ""
+echo "Starting system... Press Ctrl+C to stop"
+echo "Or run ./stop_scanner.sh from another terminal"
+echo ""
+
 sudo -E python3 boat_tracking_system.py --api-port 8000 --web-port 5000
 
