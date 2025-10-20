@@ -2148,16 +2148,30 @@ class BoatTrackingSystem:
 
                         if (boat.status !== 'in_harbor') {
                             outsideBoats.push(boat);
+                            const outsideBeaconInfo = boat.beacon ? 
+                                `<div class=\"rssi-info\">Beacon: ${boat.beacon.mac_address}<br>Signal: ${rssiToPercent(boat.beacon.last_rssi)}% (${boat.beacon.last_rssi || 'N/A'} dBm)</div>` : 
+                                '<div class=\"rssi-info\">No beacon assigned</div>';
                             outsideHtml += `
-                                <div class="boat-item out">
+                                <div class=\"boat-item out\">
                                     <div><strong>${boat.name}</strong> (${boat.class_type})</div>
+                                    ${outsideBeaconInfo}
                                 </div>
                             `;
                         }
                     });
                     boatsList.innerHTML = html;
                     const outsideList = document.getElementById('outsideList');
-                    if (outsideList) outsideList.innerHTML = outsideHtml || '<p>No boats outside</p>';
+                    const outsideSummary = `
+                        <div style="text-align: center; margin-bottom: 20px;">
+                            <div style="font-size: 3rem; font-weight: bold; color: var(--danger);">${outsideBoats.length}</div>
+                            <div style="color: #666;">Boats Outside</div>
+                        </div>
+                    `;
+                    if (outsideList) {
+                        outsideList.innerHTML = outsideHtml 
+                            ? (outsideSummary + '<h3>Currently Outside:</h3>' + outsideHtml)
+                            : (outsideSummary + '<p>No boats outside</p>');
+                    }
                     const outsideCount = document.getElementById('outsideCount');
                     if (outsideCount) outsideCount.textContent = outsideBoats.length > 0 ? `(${outsideBoats.length})` : '';
                 })
