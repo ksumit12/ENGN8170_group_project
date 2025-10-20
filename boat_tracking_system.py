@@ -2509,10 +2509,10 @@ class BoatTrackingSystem:
                         const timeStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
                         
                         html += `
-                            <div style="
+                            <div class="boat-item" style="
                                 display: flex; justify-content: space-between; align-items: center;
-                                padding: 10px 12px; margin: 6px 0; background: rgba(255,255,255,0.05);
-                                border-radius: 8px; border-left: 3px solid #4a9eff;
+                                padding: 10px 12px; margin: 6px 0;
+                                border-left: 3px solid #4a9eff;
                             ">
                                 <div style="display: flex; align-items: center; gap: 12px;">
                                     <span style="
@@ -2523,13 +2523,12 @@ class BoatTrackingSystem:
                                         text-align: center;
                                     ">#${index + 1}</span>
                                     <div>
-                                        <strong style="font-weight: 700; color: #ffffff !important; font-size: 1rem; display: block;">${boat.name}</strong>
-                                        <span style="font-size: 0.85rem; color: #a0aec0 !important; display: block;">${boat.class_type}</span>
+                                        <div><strong>${boat.name}</strong> (${boat.class_type})</div>
                                     </div>
                                 </div>
                                 <div style="text-align: right;">
                                     <div style="font-weight: bold; color: #4ade80; font-size: 1.1rem;">${timeStr}</div>
-                                    <div style="font-size: 0.75rem; color: #cbd5e0;">on water</div>
+                                    <div style="font-size: 0.8rem; color: #9fb2bd;">on water</div>
                                 </div>
                             </div>
                         `;
