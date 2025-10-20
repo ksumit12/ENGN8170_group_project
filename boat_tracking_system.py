@@ -332,18 +332,34 @@ class BoatTrackingSystem:
                             last_seen_ts = ls.timestamp()
                         else:
                             last_seen_ts = 0
-                    # Fetch entry/exit timestamps from FSM state (if any)
+                    # Use event-based summary for today's timestamps
+                    summary = None
+                    entry_ts = None
+                    exit_ts = None
                     try:
-                        with self.db.get_connection() as conn:
-                            c = conn.cursor()
-                            c.execute("SELECT entry_timestamp, exit_timestamp FROM beacon_states WHERE beacon_id = ?", (beacon.id,))
-                            row = c.fetchone()
-                            if row:
-                                entry_ts = row[0]
-                                exit_ts = row[1]
-                    except Exception:
-                        entry_ts = None
-                        exit_ts = None
+                        summary = self.db.summarize_today(boat.id)
+                        # Map event-based timestamps to API fields
+                        if summary['in_shed_ts_local']:
+                            entry_ts = summary['in_shed_ts_local']
+                        if summary['on_water_ts_local']:
+                            exit_ts = summary['on_water_ts_local']
+                        # Override boat status with event-based status
+                        event_status = summary['status']
+                    except Exception as e:
+                        # Fallback to old method if event system fails
+                        logger.debug(f"Event summary failed for {boat.id}, using fallback: {e}")
+                        event_status = boat.status.value
+                        try:
+                            with self.db.get_connection() as conn:
+                                c = conn.cursor()
+                                c.execute("SELECT entry_timestamp, exit_timestamp FROM beacon_states WHERE beacon_id = ?", (beacon.id,))
+                                row = c.fetchone()
+                                if row:
+                                    entry_ts = row[0]
+                                    exit_ts = row[1]
+                        except Exception:
+                            entry_ts = None
+                            exit_ts = None
                     
                     # Get water time today for this boat
                     water_time_today = 0
@@ -356,7 +372,7 @@ class BoatTrackingSystem:
                         'id': boat.id,
                         'name': boat.name,
                         'class_type': boat.class_type,
-                        'status': boat.status.value,
+                        'status': event_status if summary else boat.status.value,
                         'op_status': getattr(boat, 'op_status', 'ACTIVE'),
                         'status_updated_at': getattr(boat, 'status_updated_at', None),
                         'last_entry': (entry_ts.isoformat() if hasattr(entry_ts, 'isoformat') else entry_ts) if entry_ts else None,
