@@ -4,6 +4,7 @@ Boat Tracking System - Main Orchestrator
 Manages scanners, API server, and web dashboard
 """
 
+import os
 import time
 import threading
 import logging
