@@ -121,30 +121,27 @@ class APIServer:
                     # SINGLE_SCANNER mode: bypass FSM and mark presence immediately; background task will handle OUT
                     if single_scanner:
                         try:
+                            now_dt = datetime.now(timezone.utc)
+                            
+                            # Check if boat was previously OUT
+                            boat_before = self.db.get_boat(assigned_boat.id)
+                            was_out = boat_before and getattr(boat_before, 'status', None) == BoatStatus.OUT
+                            
                             # Immediate reflect as IN_HARBOR on detection for demo responsiveness
                             self.db.update_boat_status(assigned_boat.id, BoatStatus.IN_HARBOR)
-                        except Exception:
-                            pass
-                        # Also, if this is the first detection after an OUT (gap > window), stamp ENTRY now
-                        try:
-                            now_dt = datetime.now(timezone.utc)
-                            try:
-                                window_seconds = int(os.getenv('PRESENCE_ACTIVE_WINDOW_S', '8'))
-                            except Exception:
-                                window_seconds = 8
-                            prev_last_seen = beacon.last_seen if not isinstance(beacon.last_seen, str) else datetime.fromisoformat(beacon.last_seen)
-                            gap_ok = not prev_last_seen or (now_dt - prev_last_seen).total_seconds() > window_seconds
-                            # Refresh boat status from DB after we marked IN_HARBOR
-                            boat_after = self.db.get_boat(assigned_boat.id)
-                            if boat_after and getattr(boat_after, 'status', None) == BoatStatus.IN_HARBOR and gap_ok:
-                                # If previously OUT (or never seen), record entry and end any open trip
+                            
+                            # If boat was OUT and now returning, stamp entry and end trip
+                            if was_out:
+                                logger.info(f"Boat returning to shed: {assigned_boat.name} - stamping entry timestamp", "DETECTION")
                                 self.db.update_beacon_state(beacon.id, DetectionState.ENTERED, entry_timestamp=now_dt)
                                 try:
-                                    self.db.end_trip(assigned_boat.id, beacon.id, now_dt)
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
+                                    trip_id, duration = self.db.end_trip(assigned_boat.id, beacon.id, now_dt)
+                                    if trip_id:
+                                        logger.info(f"Trip completed for boat {assigned_boat.name}: {duration} min", "TRIP")
+                                except Exception as e:
+                                    logger.error(f"Failed to end trip: {e}", "TRIP")
+                        except Exception as e:
+                            logger.error(f"Error processing single-scanner detection: {e}", "DETECTION")
                         processed_count += 1
                         continue
 
@@ -668,7 +665,7 @@ class APIServer:
                             else:
                                 logger.info(f"Boat left harbor: {boat.name} (beacon: {beacon.mac_address}) - last seen: {last_seen_dt}", "STATUS")
                 
-                time.sleep(5)  # Update every 5 seconds
+                time.sleep(1)  # Update every 1 second for faster response
                 
             except Exception as e:
                 logger.error(f"Error updating boat statuses: {e}")

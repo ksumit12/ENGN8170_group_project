@@ -832,24 +832,78 @@ class BoatTrackingSystem:
         @self.web_app.route('/api/reports/usage/export.csv')
         def reports_usage_csv():
             import io, csv
+            from flask import Response
+            
             data = request.args.to_dict(flat=True)
-            # Reuse JSON endpoint
-            with self.web_app.test_request_context('/api/reports/usage', query_string=data):
-                resp = reports_usage()
-                rows = resp.get_json()
+            include_trips = data.get('includeTrips', '0') == '1'
+            
             buf = io.StringIO()
             w = csv.writer(buf)
-            w.writerow([
-                'boat_id', 'boat_name', 'boat_class', 'op_status', 'beacon_mac', 
-                'last_seen', 'last_rssi', 'total_outings', 'total_minutes', 'avg_duration', 'boat_notes'
-            ])
-            for r in rows:
+            
+            if include_trips:
+                # Export detailed trip logs (chronological)
+                from_date = data.get('from')
+                to_date = data.get('to')
+                boat_id_filter = data.get('boatId')
+                
+                # Parse dates
+                if from_date:
+                    from_dt = datetime.fromisoformat(from_date)
+                else:
+                    from_dt = datetime.now(timezone.utc) - timedelta(days=30)
+                
+                if to_date:
+                    to_dt = datetime.fromisoformat(to_date)
+                else:
+                    to_dt = datetime.now(timezone.utc)
+                
+                # Get detailed trip data
+                trip_data = self._export_boat_water_time_data(from_dt, to_dt, boat_id_filter)
+                
+                # Write header
                 w.writerow([
-                    r['boat_id'], r['boat_name'], r['boat_class'], r['op_status'], 
-                    r['beacon_mac'], r['last_seen'], r['last_rssi'], r['total_outings'], 
-                    r['total_minutes'], r['avg_duration'], r['boat_notes']
+                    'sequence_number', 'boat_id', 'boat_name', 'boat_class', 'trip_date', 
+                    'exit_time', 'entry_time', 'duration_minutes', 'duration_hours', 
+                    'trip_id', 'movement_type', 'time_since_last_trip_minutes',
+                    'daily_trip_count', 'weekly_trip_count', 'maintenance_notes'
                 ])
-            from flask import Response
+                
+                # Write trip data
+                for i, entry in enumerate(trip_data, 1):
+                    w.writerow([
+                        i,
+                        entry.get('boat_id', ''),
+                        entry.get('boat_name', ''),
+                        entry.get('boat_class', ''),
+                        entry.get('trip_date', ''),
+                        entry.get('exit_time', ''),
+                        entry.get('entry_time', ''),
+                        entry.get('duration_minutes', ''),
+                        entry.get('duration_hours', ''),
+                        entry.get('trip_id', ''),
+                        entry.get('movement_type', ''),
+                        entry.get('time_since_last_trip_minutes', ''),
+                        entry.get('daily_trip_count', ''),
+                        entry.get('weekly_trip_count', ''),
+                        entry.get('maintenance_notes', '')
+                    ])
+            else:
+                # Export summary data
+                with self.web_app.test_request_context('/api/reports/usage', query_string=data):
+                    resp = reports_usage()
+                    rows = resp.get_json()
+                
+                w.writerow([
+                    'boat_id', 'boat_name', 'boat_class', 'op_status', 'beacon_mac', 
+                    'last_seen', 'last_rssi', 'total_outings', 'total_minutes', 'avg_duration', 'boat_notes'
+                ])
+                for r in rows:
+                    w.writerow([
+                        r['boat_id'], r['boat_name'], r['boat_class'], r['op_status'], 
+                        r['beacon_mac'], r['last_seen'], r['last_rssi'], r['total_outings'], 
+                        r['total_minutes'], r['avg_duration'], r['boat_notes']
+                    ])
+            
             return Response(buf.getvalue(), mimetype='text/csv')
         
         @self.web_app.route('/api/boats/list')
@@ -1587,42 +1641,119 @@ class BoatTrackingSystem:
             padding: 24px;
         }
         .container { max-width: 1400px; margin: 0 auto; }
-        .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-        .brand { display: flex; align-items: baseline; gap: 12px; }
+        .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+        .brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
         .brand h1 { color: var(--paper); font-size: 2rem; letter-spacing: 1px; }
         .brand span { color: var(--sand); font-weight: 600; font-size: 0.95rem; }
         .primary-btn {
             background: var(--red); color: var(--paper); border: none; padding: 12px 20px;
             border-radius: 8px; font-weight: 700; cursor: pointer; letter-spacing: .3px;
             box-shadow: 0 6px 16px rgba(229,75,75,0.25);
+            transition: all 0.3s ease;
+            white-space: nowrap;
         }
-        .primary-btn:hover { filter: brightness(1.05); }
+        .primary-btn:hover { filter: brightness(1.05); transform: translateY(-1px); }
         .dashboard { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 20px; }
-        @media (max-width: 1100px) { .dashboard { grid-template-columns: 1fr; } }
         
-        /* Mobile optimization */
-        @media (max-width: 768px) {
+        /* Mobile optimization (Portrait phones) */
+        @media (max-width: 480px) {
+            body { padding: 8px; }
+            .header { flex-direction: column; align-items: flex-start; gap: 10px; }
+            .brand { flex-direction: column; gap: 4px; }
+            .brand h1 { font-size: 1.1rem; line-height: 1.3; }
+            .brand span { font-size: 0.8rem; }
+            .header > div:last-child { 
+                display: flex; 
+                flex-wrap: wrap; 
+                gap: 6px; 
+                width: 100%; 
+            }
+            .primary-btn { 
+                padding: 8px 12px; 
+                font-size: 0.8rem; 
+                flex: 1 1 auto;
+                min-width: calc(50% - 3px);
+            }
+            .whiteboard-board { padding: 10px; margin-bottom: 12px; }
+            .wb-title { font-size: 1rem; margin-bottom: 8px; }
+            .wb-table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .wb-table { font-size: 0.75rem; min-width: 600px; }
+            .wb-table th, .wb-table td { padding: 6px 4px; }
+            .wb-table th { font-size: 0.7rem; }
+            .dashboard { gap: 10px; grid-template-columns: 1fr; }
+            .card { padding: 12px; }
+            .card h2 { font-size: 1.1rem; margin-bottom: 10px; }
+            .boat-item, .beacon-item { padding: 8px; margin: 8px 0; }
+            .status-badge { font-size: 0.7rem; padding: 2px 6px; }
+            .rssi-info { font-size: 0.75rem; }
+            #overdueBanner { font-size: 0.85rem; padding: 8px; }
+            #closingTimeDisplay { font-size: 0.85rem; }
+            .subnote { font-size: 0.75rem; }
+        }
+        
+        /* Mobile optimization (Landscape phones & small tablets) */
+        @media (min-width: 481px) and (max-width: 768px) {
             body { padding: 12px; }
-            .brand h1 { font-size: 1.25rem; }
-            .primary-btn { padding: 10px 12px; font-size: 0.9rem; }
+            .header { gap: 10px; }
+            .brand h1 { font-size: 1.4rem; }
+            .brand span { font-size: 0.85rem; }
+            .header > div:last-child { display: flex; flex-wrap: wrap; gap: 8px; }
+            .primary-btn { padding: 10px 14px; font-size: 0.85rem; }
             .whiteboard-board { padding: 12px; }
-            .wb-title { font-size: 1.2rem; }
-            .wb-table th, .wb-table td { padding: 8px 6px; font-size: 0.9rem; }
-            .dashboard { gap: 12px; }
+            .wb-title { font-size: 1.3rem; }
+            .wb-table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .wb-table { font-size: 0.85rem; min-width: 700px; }
+            .wb-table th, .wb-table td { padding: 8px 6px; }
+            .dashboard { gap: 12px; grid-template-columns: 1fr; }
             .card { padding: 14px; }
             .boat-item, .beacon-item { padding: 10px; }
-            .wb-table { font-size: 0.85rem; }
-            .wb-table th, .wb-table td { padding: 6px 4px; }
-            .status-badge { font-size: 0.8rem; padding: 2px 6px; }
-            .rssi-info { font-size: 0.8rem; }
+            .status-badge { font-size: 0.8rem; }
         }
         
-        /* Tablet optimization */
+        /* Tablet optimization (Portrait tablets) */
         @media (min-width: 769px) and (max-width: 1024px) {
+            body { padding: 16px; }
             .dashboard { grid-template-columns: 1fr 1fr; gap: 16px; }
             .whiteboard-board { padding: 16px; }
             .wb-table th, .wb-table td { padding: 10px 8px; }
+            .header > div:last-child { gap: 10px; }
         }
+        
+        /* Desktop optimization */
+        @media (min-width: 1025px) {
+            .dashboard { grid-template-columns: 1.1fr 1fr 1fr; }
+        }
+        
+        /* Wide screens */
+        @media (min-width: 1600px) {
+            .container { max-width: 1600px; }
+        }
+        
+        /* Modal responsive styles */
+        .modal-content {
+            background-color: white; 
+            margin: 5% auto; 
+            padding: 20px; 
+            border-radius: 15px; 
+            width: 80%; 
+            max-width: 800px; 
+            max-height: 80vh;
+            overflow-y: auto; 
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        @media (max-width: 768px) {
+            .modal-content {
+                width: 95%;
+                margin: 2% auto;
+                padding: 15px;
+                max-height: 95vh;
+            }
+            .modal-content h2 {
+                font-size: 1.2rem;
+            }
+        }
+        
         .card { 
             background: var(--paper); color: #2c3e50; border-radius: 14px; padding: 22px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.25);
@@ -1683,21 +1814,23 @@ class BoatTrackingSystem:
         <!-- Whiteboard-style priority view -->
         <div class="whiteboard-board">
             <div class="wb-title">Boat Out Board - <span id="todayDate">Loading...</span></div>
-            <table class="wb-table" id="wbTable">
-                <thead>
-                    <tr>
-                        <th>Boat</th>
-                        <th>Status</th>
-                        <th>Time IN SHED</th>
-                        <th>Time ON WATER</th>
-                        <th>Last Seen</th>
-                        <th>Water Today</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr><td colspan="6" style="text-align:center; padding:14px; font-weight:600; color:#666;">Loading...</td></tr>
-                </tbody>
-            </table>
+            <div class="wb-table-wrapper">
+                <table class="wb-table" id="wbTable">
+                    <thead>
+                        <tr>
+                            <th>Boat</th>
+                            <th>Status</th>
+                            <th>Time IN SHED</th>
+                            <th>Time ON WATER</th>
+                            <th>Last Seen</th>
+                            <th>Water Today</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="6" style="text-align:center; padding:14px; font-weight:600; color:#666;">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
             <div class="subnote">This board updates automatically from live scanner readings.</div>
         </div>
         
@@ -1736,11 +1869,7 @@ class BoatTrackingSystem:
         display: none; position: fixed; z-index: 1000; left: 0; top: 0; 
         width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);
     ">
-        <div style="
-            background-color: white; margin: 5% auto; padding: 20px; 
-            border-radius: 15px; width: 80%; max-width: 800px; max-height: 80vh;
-            overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-        ">
+        <div class="modal-content">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2 style="color: #2c3e50; margin: 0;">Discover & Register Beacons</h2>
                 <button onclick="closeBeaconDiscovery()" style="
@@ -1864,11 +1993,7 @@ class BoatTrackingSystem:
         display: none; position: fixed; z-index: 1002; left: 0; top: 0; 
         width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);
     ">
-        <div style="
-            background-color: white; margin: 2% auto; padding: 20px; 
-            border-radius: 15px; width: 95%; max-width: 1200px; max-height: 90vh;
-            overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-        ">
+        <div class="modal-content" style="max-width: 1200px; width: 95%;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2 style="color: #2c3e50; margin: 0;">System Logs & Status</h2>
                 <button onclick="closeLogViewer()" style="
@@ -2569,55 +2694,6 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
       const t=await r.text();
       if(r.ok){ alert('System reset complete'); } else { alert('Error: '+t); }
     }
-    async function exportWaterTime(){
-      const startDate = document.getElementById('waterStartDate').value;
-      const endDate = document.getElementById('waterEndDate').value;
-      const boatId = document.getElementById('waterBoatId').value.trim();
-      
-      if(!startDate || !endDate){ alert('Please select start and end dates'); return; }
-      
-      try{
-        const payload = {
-          start_date: startDate,
-          end_date: endDate
-        };
-        if(boatId) payload.boat_id = boatId;
-        
-        const r = await fetch('/api/boats/export-water-time', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify(payload)
-        });
-        
-        if(r.ok){
-          const blob = await r.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `boat_water_time_${startDate}_to_${endDate}.csv`;
-          document.body.appendChild(a);
-          a.click();
-          window.URL.revokeObjectURL(url);
-          document.body.removeChild(a);
-          alert('Water time data exported successfully!');
-        } else {
-          alert('Export failed: ' + (await r.text()));
-        }
-      }catch(e){ alert('Export failed: '+e); }
-    }
-    async function loadBoats(){
-      try{
-        const boats = await fetch('/api/boats').then(r=>r.json());
-        const select = document.getElementById('waterBoatId');
-        select.innerHTML = '<option value="">All Boats</option>';
-        boats.forEach(boat => {
-          const option = document.createElement('option');
-          option.value = boat.id;
-          option.textContent = `${boat.name} (${boat.class_type})`;
-          select.appendChild(option);
-        });
-      }catch(e){ console.log('Failed to load boats:', e); }
-    }
   </script>
 </head>
 <body>
@@ -2633,27 +2709,6 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
     <div style=\"margin:8px 0; display:flex; gap:8px; align-items:center;\">
       <label for=\"closing\" style=\"min-width:120px;\">Overdue after:</label>
       <input id=\"closing\" placeholder=\"HH:MM\" style=\"flex:0 0 120px\"> <button class=\"primary\" onclick=\"saveClosing()\">Save</button>
-    </div>
-    <div style=\"margin:8px 0; padding:12px; background:#f8f9fa; border-radius:6px;\">
-      <h3 style=\"margin:0 0 8px 0; color:#2c3e50;\">Export Boat Water Time Data</h3>
-      <div style=\"display:flex; gap:8px; align-items:center; margin:4px 0;\">
-        <label style=\"min-width:80px;\">Start Date:</label>
-        <input type=\"date\" id=\"waterStartDate\" style=\"flex:1;\">
-      </div>
-      <div style=\"display:flex; gap:8px; align-items:center; margin:4px 0;\">
-        <label style=\"min-width:80px;\">End Date:</label>
-        <input type=\"date\" id=\"waterEndDate\" style=\"flex:1;\">
-      </div>
-      <div style=\"display:flex; gap:8px; align-items:center; margin:4px 0;\">
-        <label style=\"min-width:80px;\">Boat:</label>
-        <select id=\"waterBoatId\" style=\"flex:1; padding:8px; border:1px solid #ccc; border-radius:6px;\">
-          <option value=\"\">Loading boats...</option>
-        </select>
-      </div>
-      <div style=\"margin:8px 0;\">
-        <button class=\"primary\" onclick=\"exportWaterTime()\">Export Water Time CSV</button>
-      </div>
-      <p class=\"muted\" style=\"margin:4px 0 0 0;\">Exports detailed trip data including exit/entry times and duration for analysis.</p>
     </div>
     <div style=\"display:flex; gap:10px; align-items:center; margin:8px 0\">
       <a href=\"/reports\" style=\"background:#007bff;color:#fff;text-decoration:none;padding:10px 16px;border-radius:6px\">Reports</a>
@@ -3300,10 +3355,7 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
         <h1>Boat Usage Reports</h1>
         <div class="actions">
           <button class="btn btn-success" onclick="exportData()">
-            Export Usage CSV
-          </button>
-          <button class="btn btn-primary" onclick="exportWaterTimeData()">
-            Export Water Time CSV
+            Export CSV
           </button>
         </div>
       </div>
@@ -3542,51 +3594,10 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
       if (fromDate) params.set('from', fromDate);
       if (toDate) params.set('to', toDate);
       if (boatId) params.set('boatId', boatId);
+      params.set('includeTrips', '1');  // Include detailed trip logs
       
       const url = '/api/reports/usage/export.csv?' + params.toString();
       window.open(url, '_blank');
-    }
-
-    async function exportWaterTimeData() {
-      const fromDate = document.getElementById('fromDate').value;
-      const toDate = document.getElementById('toDate').value;
-      const boatId = document.getElementById('boatSelect').value;
-      
-      if (!fromDate || !toDate) {
-        alert('Please select both start and end dates');
-        return;
-      }
-      
-      try {
-        const payload = {
-          start_date: fromDate,
-          end_date: toDate
-        };
-        if (boatId) payload.boat_id = boatId;
-        
-        const response = await fetch('/api/boats/export-water-time', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        
-        if (response.ok) {
-          const blob = await response.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `boat_water_time_${fromDate}_to_${toDate}.csv`;
-          document.body.appendChild(a);
-          a.click();
-          window.URL.revokeObjectURL(url);
-          document.body.removeChild(a);
-          alert('Water time data exported successfully!');
-        } else {
-          alert('Export failed: ' + (await response.text()));
-        }
-      } catch (error) {
-        alert('Export failed: ' + error.message);
-      }
     }
 
     function displaySessions(data, boatId) {
