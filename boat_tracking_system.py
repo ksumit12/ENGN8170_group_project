@@ -2126,6 +2126,7 @@ class BoatTrackingSystem:
                     
                     let html = '';
                     let outsideHtml = '';
+                    const outsideBoats = [];
                     data.forEach(boat => {
                         const statusClass = boat.status === 'in_harbor' ? 'in-harbor' : 'out';
                         const statusBadge = boat.status === 'in_harbor' ? 'status-in-harbor' : 'status-out';
@@ -2146,6 +2147,7 @@ class BoatTrackingSystem:
                         `;
 
                         if (boat.status !== 'in_harbor') {
+                            outsideBoats.push(boat);
                             outsideHtml += `
                                 <div class="boat-item out">
                                     <div><strong>${boat.name}</strong> (${boat.class_type})</div>
@@ -2294,8 +2296,8 @@ class BoatTrackingSystem:
             return pct;
         }
         
-        // Update every 3 seconds
-        setInterval(updateAllData, 3000);
+        // Update every 1 second for faster UI reflection
+        setInterval(updateAllData, 1000);
         
         // Initial load
         updateAllData();
@@ -3860,14 +3862,16 @@ def get_default_config():
                 'id': 'gate-outer',
                 'api_key': 'default-key',
                 'rssi_threshold': -60,  # Left scanner - detects when beacon is within ~1m
-                'scan_interval': 1.0,
+                'scan_interval': 0.5,
+                'batch_size': 1,
                 'adapter': 'hci1'  # Using hci1 - hci0 has locking issues
             },
             {
                 'id': 'gate-inner',
                 'api_key': 'default-key',
                 'rssi_threshold': -55,  # Right scanner - detects when beacon is within ~0.5m
-                'scan_interval': 1.0,
+                'scan_interval': 0.5,
+                'batch_size': 1,
                 'adapter': 'hci0'  # TP-Link BLE Scanner #2 (Right side)
             }
         ]
