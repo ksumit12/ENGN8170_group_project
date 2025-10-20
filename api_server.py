@@ -99,6 +99,7 @@ class APIServer:
                     
                     # Log raw detection for calibration analytics
                     try:
+                        pass  # keep block non-empty even if the next line is later commented out
                         self.db.log_detection(scanner_id, beacon.id, rssi, DetectionState.IDLE)
                     except Exception:
                         pass
