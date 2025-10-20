@@ -511,124 +511,36 @@ class APIServer:
                 # Get all boats with assigned beacons
                 boats = self.db.get_all_boats()
                 
-                import os
-                two_switch = os.getenv('PRESENCE_TWO_SWITCH', '0') == '1'
-                run_env = os.getenv('RUN_ENV', 'prod')
-                test_force_exit = (run_env == 'test' and os.getenv('PRESENCE_TEST_FORCE_EXIT', '0') == '1')
-                try:
-                    gate_pass_s = float(os.getenv('GATE_PASS_S', '1.5'))
-                except Exception:
-                    gate_pass_s = 1.5
-
-                import os
-                suppress_initial_entry = os.getenv('DEMO_SUPPRESS_INITIAL_ENTRY', '0') == '1'
+                window_seconds = int(os.getenv('PRESENCE_ACTIVE_WINDOW_S', '8'))
+                
                 for boat in boats:
                     beacon = self.db.get_beacon_by_boat(boat.id)
-                    if beacon:
-                        # Consider the beacon "in shed" if seen recently
-                        try:
-                            window_seconds = int(os.getenv('PRESENCE_ACTIVE_WINDOW_S', '8'))
-                        except Exception:
-                            window_seconds = 8
-                        if beacon.last_seen:
-                            last_seen_dt = beacon.last_seen if isinstance(beacon.last_seen, datetime) else datetime.fromisoformat(beacon.last_seen)
-                        else:
-                            last_seen_dt = None
-
-                        # Check if beacon was seen recently
-                        is_recently_seen = last_seen_dt and (datetime.now(timezone.utc) - last_seen_dt).total_seconds() <= window_seconds
-
-                        # Prefer explicit FSM state if available; default to IN_HARBOR on fresh systems
-                        preferred_status = None
-                        try:
-                            fsm_state = self.fsm.get_beacon_state(beacon.id)
-                            if fsm_state == FSMState.ENTERED:
-                                preferred_status = BoatStatus.IN_HARBOR
-                            elif fsm_state == FSMState.EXITED:
-                                preferred_status = BoatStatus.OUT
-                            elif fsm_state == FSMState.IDLE and last_seen_dt is None:
-                                # Fresh install: treat IDLE + never-seen as in shed
-                                preferred_status = BoatStatus.IN_HARBOR
-                        except Exception:
-                            preferred_status = None
-
-                        new_status = preferred_status
-
-                        # Optional two-switch logic: only if FSM didn't dictate above
-                        if new_status is None and two_switch:
-                            fsm_state = self.fsm.get_beacon_state(beacon.id)
-                            in_cond = bool(is_recently_seen) and fsm_state == FSMState.ENTERED
-                            out_cond = (not is_recently_seen) and fsm_state != FSMState.ENTERED
-
-                            # Test-only force-exit branch: inner absent and outer receding
-                            if test_force_exit and not in_cond and not out_cond:
-                                try:
-                                    now_ts = time.time()
-                                    # Inner absent using cache
-                                    inner_absent = self.recent.seconds_since_seen(self.fsm.inner_scanner_id, beacon.mac_address, now_ts) >= window_seconds
-                                    # Outer receding using trend from cache (threshold tunable for tests)
-                                    try:
-                                        v_th = float(os.getenv('RSSI_TREND_VTH_DBPS', '3.0'))
-                                    except Exception:
-                                        v_th = 3.0
-                                    receding = self.recent.trend(self.fsm.outer_scanner_id, beacon.mac_address) <= -v_th
-
-                                    # In test-only mode, relax strong_ok to avoid timing dependence
-                                    if inner_absent and receding:
-                                        # In test-only mode, force OUT even if in_cond is still true
-                                        new_status = BoatStatus.OUT
-                                        logger.info(
-                                            "[presence] TEST_FORCE_EXIT used: inner_absent=%s, receding=%s",
-                                            inner_absent, receding
-                                        )
-                                    else:
-                                        new_status = BoatStatus.IN_HARBOR if in_cond else (BoatStatus.OUT if out_cond else boat.status)
-                                except Exception:
-                                    new_status = BoatStatus.IN_HARBOR if in_cond else (BoatStatus.OUT if out_cond else boat.status)
-                            else:
-                                new_status = BoatStatus.IN_HARBOR if in_cond else (BoatStatus.OUT if out_cond else boat.status)
-
-                        if new_status is None:
-                            # Default: recency-only heuristic (single-scanner friendly)
-                            new_status = BoatStatus.IN_HARBOR if is_recently_seen else BoatStatus.OUT
+                    if not beacon:
+                        continue
+                    
+                    # Get last seen time
+                    if beacon.last_seen:
+                        last_seen_dt = beacon.last_seen if isinstance(beacon.last_seen, datetime) else datetime.fromisoformat(beacon.last_seen)
+                        if last_seen_dt.tzinfo is None:
+                            last_seen_dt = last_seen_dt.replace(tzinfo=timezone.utc)
+                    else:
+                        last_seen_dt = None
+                    
+                    # Check if recently seen
+                    is_recently_seen = last_seen_dt and (datetime.now(timezone.utc) - last_seen_dt).total_seconds() <= window_seconds
+                    
+                    # ONLY mark OUT if NOT recently seen AND currently IN_HARBOR
+                    if not is_recently_seen and boat.status == BoatStatus.IN_HARBOR:
+                        # Skip if never seen (prevents startup false OUT)
+                        if last_seen_dt is None:
+                            continue
                         
-                        # Only update and log if status changed
-                        if boat.status != new_status:
-                            # Startup guard: do not force OUT when we've never seen the beacon yet
-                            if new_status == BoatStatus.OUT and last_seen_dt is None:
-                                continue
-                            
-                            # Skip startup grace - let detection handler manage timestamps properly
-                            pass
-                            # Demo-aware timestamping: only record timestamps on OUT/IN transitions.
-                            try:
-                                # Look up current FSM state
-                                cur_state = self.fsm.get_beacon_state(beacon.id)
-                            except Exception:
-                                cur_state = FSMState.IDLE
-
-                            # Transition to OUT: ONLY stamp if we're actually transitioning from IN
-                            if new_status == BoatStatus.OUT and boat.status == BoatStatus.IN_HARBOR:
-                                try:
-                                    now_ts = datetime.now(timezone.utc)
-                                    self.db.update_beacon_state(beacon.id, DetectionState.EXITED, exit_timestamp=now_ts)
-                                    self.db.start_trip(boat.id, beacon.id, now_ts)
-                                    logger.info(f"Boat left shed: {boat.name}", "STATUS")
-                                except Exception as e:
-                                    logger.error(f"Failed to stamp exit: {e}", "STATUS")
-
-                            # Transition to IN: ONLY stamp if returning from OUT (handled in detection now)
-                            elif new_status == BoatStatus.IN_HARBOR:
-                                # Detection handler already manages entry timestamps
-                                pass
-
-                            # Finally, update boat status for dashboard
-                            self.db.update_boat_status(boat.id, new_status)
-                            
-                            if new_status == BoatStatus.IN_HARBOR:
-                                logger.info(f"Boat entered harbor: {boat.name} (beacon: {beacon.mac_address})", "STATUS")
-                            else:
-                                logger.info(f"Boat left harbor: {boat.name} (beacon: {beacon.mac_address}) - last seen: {last_seen_dt}", "STATUS")
+                        # Mark OUT and stamp exit
+                        now_ts = datetime.now(timezone.utc)
+                        self.db.update_beacon_state(beacon.id, DetectionState.EXITED, exit_timestamp=now_ts)
+                        self.db.start_trip(boat.id, beacon.id, now_ts)
+                        self.db.update_boat_status(boat.id, BoatStatus.OUT)
+                        logger.info(f"Boat left shed: {boat.name}", "STATUS")
                 
                 time.sleep(1)  # Update every 1 second for faster response
                 
