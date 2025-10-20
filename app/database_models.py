@@ -526,7 +526,7 @@ class DatabaseManager:
                 # Update existing beacon
                 beacon_id = existing[0]
                 cursor.execute("""
-                    UPDATE beacons SET last_seen = COALESCE(?, last_seen), last_rssi = ?, updated_at = ?
+                    UPDATE beacons SET last_seen = ?, last_rssi = ?, updated_at = ?
                     WHERE mac_address = ?
                 """, (now, rssi, now, mac_address))
             else:
@@ -542,7 +542,7 @@ class DatabaseManager:
                         mac_address,
                         name,
                         BeaconStatus.UNCLAIMED.value,
-                        None,               # last_seen
+                        now,                # last_seen - set to now on first detection
                         rssi,               # last_rssi
                         now,
                         now,

@@ -181,6 +181,9 @@ class BLEScanner:
                 rt = data.get('rssi_threshold')
                 if isinstance(rt, int):
                     self._api_rssi_threshold = rt
+                aw = data.get('active_window_seconds')
+                if isinstance(aw, int):
+                    self.config.active_window_seconds = max(1, aw)
                 self._last_settings_fetch_ts = now
         except Exception:
             # Keep last known value

@@ -345,6 +345,7 @@ class APIServer:
                     'outer_scanner_id': getattr(self.fsm, 'outer_scanner_id', None),
                     'inner_scanner_id': getattr(self.fsm, 'inner_scanner_id', None),
                     'rssi_threshold': getattr(self.fsm, 'rssi_threshold', None),
+                    'active_window_seconds': int(os.getenv('SCANNER_ACTIVE_WINDOW_S', '6')),
                     'hysteresis_db': getattr(self.fsm, 'hysteresis', None),
                     'pair_windows_s': {
                         'enter': getattr(self.fsm, 'w_pair_enter_s', None),

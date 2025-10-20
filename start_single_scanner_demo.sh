@@ -13,7 +13,8 @@ sleep 2
 # Set environment variables for single-scanner mode
 export SINGLE_SCANNER=1
 export SCANNER_ID=gate-outer  # or gate-inner, depending on which scanner you want to use
-export PRESENCE_ACTIVE_WINDOW_S=120  # 120 seconds (2 minutes) window for considering a beacon "present"
+# Short window so boats flip to OUT quickly when beacon powers off
+export PRESENCE_ACTIVE_WINDOW_S=12
 
 # Activate virtual environment
 source .venv/bin/activate

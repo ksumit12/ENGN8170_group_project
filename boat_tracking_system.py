@@ -1242,7 +1242,8 @@ class BoatTrackingSystem:
                         api_key=scanner_config.get('api_key', 'default-key'),
                         rssi_threshold=scanner_config.get('rssi_threshold', -80),
                         scan_interval=scanner_config.get('scan_interval', 1.0),
-                        adapter=adapter
+                        adapter=adapter,
+                        active_window_seconds=scanner_config.get('active_window_seconds', 6)
                     )
                     scanner = BLEScanner(config)
                     scanner.start_scanning()
@@ -2124,6 +2125,43 @@ class BoatTrackingSystem:
                         return;
                     }
                     
+                    const formatTimestamp = (iso) => {
+                        if (!iso) return '—';
+                        try {
+                            const d = new Date(iso);
+                            if (Number.isNaN(d.getTime())) return iso;
+                            const now = new Date();
+                            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                            const yesterday = new Date(today);
+                            yesterday.setDate(yesterday.getDate() - 1);
+                            const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                            if (day.getTime() === today.getTime()) return `Today ${d.toLocaleTimeString()}`;
+                            if (day.getTime() === yesterday.getTime()) return `Yesterday ${d.toLocaleTimeString()}`;
+                            return d.toLocaleDateString('en-AU') + ' ' + d.toLocaleTimeString();
+                        } catch (err) {
+                            return iso;
+                        }
+                    };
+                    const elapsedSince = (iso) => {
+                        if (!iso) return null;
+                        try {
+                            const d = new Date(iso);
+                            if (Number.isNaN(d.getTime())) return null;
+                            const diffMs = Date.now() - d.getTime();
+                            if (diffMs < 0) return 'just now';
+                            const minutes = Math.floor(diffMs / 60000);
+                            if (minutes < 1) return 'just now';
+                            if (minutes < 60) return `${minutes} min ago`;
+                            const hours = Math.floor(minutes / 60);
+                            const mins = minutes % 60;
+                            if (hours < 24) return `${hours}h ${mins}m ago`;
+                            const days = Math.floor(hours / 24);
+                            const remHours = hours % 24;
+                            return `${days}d ${remHours}h ago`;
+                        } catch (err) {
+                            return null;
+                        }
+                    };
                     let html = '';
                     let outsideHtml = '';
                     const outsideBoats = [];
@@ -2151,9 +2189,13 @@ class BoatTrackingSystem:
                             const outsideBeaconInfo = boat.beacon ? 
                                 `<div class=\"rssi-info\">Beacon: ${boat.beacon.mac_address}<br>Signal: ${rssiToPercent(boat.beacon.last_rssi)}% (${boat.beacon.last_rssi || 'N/A'} dBm)</div>` : 
                                 '<div class=\"rssi-info\">No beacon assigned</div>';
+                            const lastSeen = boat.beacon ? formatTimestamp(boat.beacon.last_seen) : null;
+                            const lastSeenAge = boat.beacon ? elapsedSince(boat.beacon.last_seen) : null;
+                            const lastSeenInfo = boat.beacon ? `<div class=\"rssi-info\">Last seen: ${lastSeen}${lastSeenAge ? ` (${lastSeenAge})` : ''}</div>` : '';
                             outsideHtml += `
                                 <div class=\"boat-item out\">
                                     <div><strong>${boat.name}</strong> (${boat.class_type})</div>
+                                    ${lastSeenInfo}
                                     ${outsideBeaconInfo}
                                 </div>
                             `;
@@ -3878,6 +3920,7 @@ def get_default_config():
                 'rssi_threshold': -60,  # Left scanner - detects when beacon is within ~1m
                 'scan_interval': 0.5,
                 'batch_size': 1,
+                'active_window_seconds': 6,
                 'adapter': 'hci1'  # Using hci1 - hci0 has locking issues
             },
             {
@@ -3886,6 +3929,7 @@ def get_default_config():
                 'rssi_threshold': -55,  # Right scanner - detects when beacon is within ~0.5m
                 'scan_interval': 0.5,
                 'batch_size': 1,
+                'active_window_seconds': 6,
                 'adapter': 'hci0'  # TP-Link BLE Scanner #2 (Right side)
             }
         ]
