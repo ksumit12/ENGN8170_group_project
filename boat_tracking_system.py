@@ -3917,7 +3917,7 @@ def get_default_config():
             {
                 'id': 'gate-outer',
                 'api_key': 'default-key',
-                'rssi_threshold': -60,  # Left scanner - detects when beacon is within ~1m
+                'rssi_threshold': -85,  # Accept weaker signals (was -60, too strict!)
                 'scan_interval': 0.5,
                 'batch_size': 1,
                 'active_window_seconds': 6,
