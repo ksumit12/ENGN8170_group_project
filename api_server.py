@@ -505,6 +505,8 @@ class APIServer:
                 except Exception:
                     gate_pass_s = 1.5
 
+                import os
+                suppress_initial_entry = os.getenv('DEMO_SUPPRESS_INITIAL_ENTRY', '0') == '1'
                 for boat in boats:
                     beacon = self.db.get_beacon_by_boat(boat.id)
                     if beacon:
@@ -577,6 +579,38 @@ class APIServer:
                         
                         # Only update and log if status changed
                         if boat.status != new_status:
+                            # Demo-aware timestamping: only record timestamps on OUT/IN transitions.
+                            try:
+                                # Look up current FSM state
+                                cur_state = self.fsm.get_beacon_state(beacon.id)
+                            except Exception:
+                                cur_state = FSMState.IDLE
+
+                            # Transition to OUT: set EXITED and start a trip
+                            if new_status == BoatStatus.OUT:
+                                try:
+                                    self.db.update_beacon_state(beacon.id, DetectionState.EXITED, exit_timestamp=datetime.now(timezone.utc))
+                                    # Start trip when leaving shed
+                                    self.db.start_trip(boat.id, beacon.id, datetime.now(timezone.utc))
+                                except Exception:
+                                    pass
+
+                            # Transition to IN: set ENTERED and end recent trip
+                            elif new_status == BoatStatus.IN_HARBOR:
+                                try:
+                                    now_ts = datetime.now(timezone.utc)
+                                    # Optionally suppress the very first entry after startup for demo
+                                    if suppress_initial_entry and cur_state in (FSMState.IDLE, FSMState.ENTERED):
+                                        # Do not stamp a new entry timestamp; only mark entered state
+                                        self.db.update_beacon_state(beacon.id, DetectionState.ENTERED)
+                                    else:
+                                        self.db.update_beacon_state(beacon.id, DetectionState.ENTERED, entry_timestamp=now_ts)
+                                        # End trip if there was an open one
+                                        self.db.end_trip(boat.id, beacon.id, now_ts)
+                                except Exception:
+                                    pass
+
+                            # Finally, update boat status for dashboard
                             self.db.update_boat_status(boat.id, new_status)
                             
                             if new_status == BoatStatus.IN_HARBOR:

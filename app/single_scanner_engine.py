@@ -27,19 +27,19 @@ class SingleScannerEngine(IFSMEngine):
         self.inner_scanner_id = (inner_scanner_id or '').lower()
 
     def process_detection(self, scanner_id: str, beacon_id: str, rssi: int) -> Optional[Tuple[Any, Any]]:
-        """On detection, set state to INSIDE and update boat status to IN_HARBOR.
+        """On detection, set state to INSIDE and mark boat IN_HARBOR.
 
-        OUT transitions are handled by the API server's recency logic.
+        Timestamping (entry/exit) is handled centrally by the API server's
+        background updater so demo logic (e.g., suppress initial entry) is
+        consistent. This method does not set timestamps.
         Returns a tuple shaped like (old_state, new_state) where each has a .value.
         """
         old_state = self.db.get_beacon_state(beacon_id) or DetectionState.IDLE
-        now = datetime.now(timezone.utc)
 
-        # Commit INSIDE on any detection (debounce handled by upstream batch/post rate)
+        # Mark INSIDE without timestamps; central updater will manage trip timing
         self.db.update_beacon_state(
             beacon_id=beacon_id,
             state=DetectionState.INSIDE,
-            entry_timestamp=now
         )
 
         # Reflect on boat status for dashboard immediacy
