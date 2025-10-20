@@ -49,6 +49,7 @@ class APIServer:
             hysteresis=10,
         )
         
+        self._seen_live_beacons = set()  # beacon_ids with at least one live detection since start
         self.setup_routes()
         self.setup_websocket_handlers()
         
@@ -118,6 +119,13 @@ class APIServer:
                         logger.debug(f"Unassigned beacon detected: {name} ({mac_address}) - skipping FSM processing", "SCANNER")
                         processed_count += 1
                         continue
+
+                    # Mark as seen-live for startup gating of timestamps
+                    try:
+                        if beacon and getattr(beacon, 'id', None):
+                            self._seen_live_beacons.add(beacon.id)
+                    except Exception:
+                        pass
 
                     # SINGLE_SCANNER mode: bypass FSM and mark presence immediately; background task will handle OUT
                     if single_scanner:
@@ -581,6 +589,13 @@ class APIServer:
                         
                         # Only update and log if status changed
                         if boat.status != new_status:
+                            # If we have not seen this beacon live since process start, do not change
+                            # status or stamp timestamps yet (prevents startup stamping based on stale DB rows)
+                            try:
+                                if beacon and beacon.id not in getattr(self, '_seen_live_beacons', set()):
+                                    continue
+                            except Exception:
+                                pass
                             # Startup guard: do not force OUT when we've never seen the beacon yet
                             if new_status == BoatStatus.OUT and last_seen_dt is None:
                                 # Skip any OUT stamping or status change until we have at least one detection
