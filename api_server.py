@@ -54,6 +54,8 @@ class APIServer:
         
         # Background task for updating boat statuses
         self.status_update_thread = threading.Thread(target=self._update_boat_statuses, daemon=True)
+        # Record server start to avoid stamping OUT at launch before any detections
+        self._started_at = time.time()
         self.status_update_thread.start()
     
     def setup_routes(self):
@@ -592,6 +594,14 @@ class APIServer:
 
                             # Transition to OUT: set EXITED and start a trip
                             if new_status == BoatStatus.OUT:
+                                # Startup grace: do not stamp or flip to OUT within the first window
+                                # after process start. This avoids "ON WATER at launch" when the
+                                # beacon simply hasn't been seen yet by the new process.
+                                try:
+                                    if (time.time() - getattr(self, '_started_at', 0.0)) < max(1.0, float(window_seconds)):
+                                        continue
+                                except Exception:
+                                    pass
                                 try:
                                     self.db.update_beacon_state(beacon.id, DetectionState.EXITED, exit_timestamp=datetime.now(timezone.utc))
                                     # Start trip when leaving shed
