@@ -818,46 +818,64 @@ class BoatTrackingSystem:
                 except Exception: return None
             start = parse_iso(from_iso)
             end = parse_iso(to_iso)
-            # Helper: for each boat -> beacon id
+            # Helper: Use event-based system instead of old detections
             boats = self.db.get_all_boats()
             summaries = []
+            
+            try:
+                from zoneinfo import ZoneInfo
+                tz = ZoneInfo('Australia/Canberra')
+            except:
+                tz = timezone.utc
+            
             for b in boats:
                 if boat_id and b.id != boat_id: continue
                 beacon = self.db.get_beacon_by_boat(b.id)
                 if not beacon: continue
+                
+                # Get all shed_events for this boat in date range
                 with self.db.get_connection() as conn:
                     cur = conn.cursor()
-                    cur.execute("""
-                        SELECT timestamp, state FROM detections
-                        WHERE beacon_id = ?
-                        ORDER BY timestamp ASC
-                    """, (beacon.id,))
-                    rows = cur.fetchall()
-                # filter by range
-                events = []
-                for ts, st in rows:
-                    t = datetime.fromisoformat(ts) if isinstance(ts,str) else ts
-                    # Ensure timezone awareness for comparison
-                    if t.tzinfo is None:
-                        t = t.replace(tzinfo=timezone.utc)
-                    if start and t < start: continue
-                    if end and t > end: continue
-                    events.append((t, st))
-                # pair ON_WATER (exited) -> IN_SHED (entered)
+                    
+                    if start and end:
+                        cur.execute("""
+                            SELECT event_type, ts_utc FROM shed_events
+                            WHERE boat_id = ? AND ts_utc >= ? AND ts_utc <= ?
+                            ORDER BY ts_utc ASC
+                        """, (b.id, start, end))
+                    else:
+                        cur.execute("""
+                            SELECT event_type, ts_utc FROM shed_events
+                            WHERE boat_id = ?
+                            ORDER BY ts_utc ASC
+                        """, (b.id,))
+                    
+                    event_rows = cur.fetchall()
+                
+                # Pair OUT_SHED -> IN_SHED as sessions
                 total_minutes = 0
                 count = 0
                 opened = None
                 sessions = []
-                for t, st in events:
-                    if st in ('exited', 'ON_WATER') and opened is None:
-                        opened = t
-                    elif st in ('entered', 'IN_SHED') and opened is not None:
-                        dur = (t - opened).total_seconds()/60.0
+                
+                for event_type, ts_utc_str in event_rows:
+                    ts_utc = datetime.fromisoformat(ts_utc_str) if isinstance(ts_utc_str, str) else ts_utc_str
+                    if ts_utc.tzinfo is None:
+                        ts_utc = ts_utc.replace(tzinfo=timezone.utc)
+                    
+                    if event_type == 'OUT_SHED' and opened is None:
+                        opened = ts_utc
+                    elif event_type == 'IN_SHED' and opened is not None:
+                        dur = (ts_utc - opened).total_seconds() / 60.0
                         if dur > 0:
                             total_minutes += int(dur)
                             count += 1
                             if include_sessions:
-                                sessions.append({'start': opened.isoformat(), 'end': t.isoformat(), 'minutes': int(dur)})
+                                sessions.append({
+                                    'start': opened.isoformat(), 
+                                    'end': ts_utc.isoformat(), 
+                                    'minutes': int(dur)
+                                })
                         opened = None
                 
                 # Get additional boat details
