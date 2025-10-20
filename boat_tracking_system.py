@@ -275,10 +275,23 @@ class BoatTrackingSystem:
         def admin_reset_endpoint():
             data = request.get_json() or {}
             try:
-                if not (data.get('user') and data.get('pass')):
-                    return jsonify({'error': 'Unauthorized'}), 401
+                # Proper credential validation
+                ADMIN_USER = 'admin_red_shed'
+                ADMIN_PASS = 'Bmrc_2025'
+                
+                user = data.get('user', '').strip()
+                password = data.get('pass', '').strip()
+                
+                if not user or not password:
+                    return jsonify({'error': 'Username and password required'}), 401
+                
+                if user != ADMIN_USER or password != ADMIN_PASS:
+                    logger.warning(f"Failed admin login attempt: {user}", "SECURITY")
+                    return jsonify({'error': 'Invalid credentials'}), 401
+                
                 if data.get('dry'):
                     return jsonify({'message': 'Auth OK'})
+                
                 code, payload = admin_service.admin_reset(self.db)
                 return jsonify(payload), code
             except Exception as e:
@@ -2809,10 +2822,10 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
 <body>
   <div class=\"card\">
     <h2>Admin Login</h2>
-    <div style=\"margin:8px 0\"><input id=\"user\" placeholder=\"User ID\" value=\"admin\"></div>
-    <div style=\"margin:8px 0\"><input id=\"pass\" type=\"password\" placeholder=\"Password\" value=\"change_this_password\"></div>
+    <div style=\"margin:8px 0\"><input id=\"user\" placeholder=\"User ID\"></div>
+    <div style=\"margin:8px 0\"><input id=\"pass\" type=\"password\" placeholder=\"Password\"></div>
     <div style=\"margin:8px 0\"><button class=\"primary\" onclick=\"login()\">Login</button></div>
-    <p class=\"muted\">Credentials are configured server-side. Change before production.</p>
+    <p class=\"muted\">Credentials are configured server-side. Contact admin for access.</p>
   </div>
   <div id=\"actions\" class=\"card\" style=\"display:none\">
     <h2>Admin Actions</h2>

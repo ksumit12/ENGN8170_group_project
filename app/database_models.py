@@ -1201,25 +1201,18 @@ class DatabaseManager:
         # Baseline status: presence wins over stale DB status
         status = 'IN_SHED' if present_now else 'ON_WATER'
         
-        # ---- on_water_ts_local (first OUT today, or yesterday carry-over) ----
-        # ALWAYS show first OUT today if it exists (regardless of current status)
+        # ---- on_water_ts_local: FIRST OUT today (always show if exists) ----
         out_today = next((e for e in ev_today if e['event_type'] == 'OUT_SHED'), None)
+        on_water_ts_local = out_today['ts_local'] if out_today else None
         
-        if out_today:
-            on_water_ts_local = out_today['ts_local']
-        else:
-            # Carry over only if: currently ON_WATER and no IN today
+        # If no OUT today but boat currently ON_WATER, carry over yesterday's last OUT
+        if not on_water_ts_local and status == 'ON_WATER':
             any_in_today = any(e['event_type'] == 'IN_SHED' for e in ev_today)
-            any_out_yest = any(e['event_type'] == 'OUT_SHED' for e in ev_yest)
-            
-            if status == 'ON_WATER' and not any_in_today and any_out_yest:
-                # Use yesterday's last OUT
+            if not any_in_today:  # No return today
                 last_out_yest = next((e for e in reversed(ev_yest) if e['event_type'] == 'OUT_SHED'), None)
                 on_water_ts_local = last_out_yest['ts_local'] if last_out_yest else None
-            else:
-                on_water_ts_local = None
         
-        # ---- in_shed_ts_local (latest IN today) ----
+        # ---- in_shed_ts_local: LATEST IN today (always show if exists) ----
         ins_today = next((e for e in reversed(ev_today) if e['event_type'] == 'IN_SHED'), None)
         in_shed_ts_local = ins_today['ts_local'] if ins_today else None
         
