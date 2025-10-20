@@ -1,0 +1,14 @@
+{
+  "api_host": "localhost",
+  "api_port": 8000,
+  "scanners": [
+    {
+      "id": "gate-outer",
+      "api_key": "default-key",
+      "scan_interval": 0.5,
+      "batch_size": 1,
+      "adapter": "hci1"
+    }
+  ]
+}
+

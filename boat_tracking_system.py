@@ -1086,7 +1086,18 @@ class BoatTrackingSystem:
                 except Exception:
                     present_adapters = set()
             
+            # SINGLE SCANNER MODE: Only start ONE scanner!
+            single_scanner = os.getenv('SINGLE_SCANNER', '0') == '1'
+            scanner_id_filter = os.getenv('SCANNER_ID', 'gate-outer').lower()
+            
+            if single_scanner:
+                logger.info(f"🎯 SINGLE-SCANNER MODE: Only starting {scanner_id_filter}", "SCANNER")
+            
             for scanner_config in self.config['scanners']:
+                # Skip if in single-scanner mode and this isn't the one we want
+                if single_scanner and scanner_config['id'].lower() != scanner_id_filter:
+                    logger.info(f"Skipping scanner {scanner_config['id']} - single scanner mode, using {scanner_id_filter}", "SCANNER")
+                    continue
                 try:
                     adapter = scanner_config.get('adapter', None)
                     if adapter and present_adapters and adapter not in present_adapters:
@@ -3524,16 +3535,10 @@ def get_default_config():
             {
                 'id': 'gate-outer',
                 'api_key': 'default-key',
-                'rssi_threshold': -60,  # Left scanner - detects when beacon is within ~1m
-                'scan_interval': 1.0,
-                'adapter': 'hci0'  # TP-Link BLE Scanner #1 (Left side)
-            },
-            {
-                'id': 'gate-inner',
-                'api_key': 'default-key',
-                'rssi_threshold': -55,  # Right scanner - detects when beacon is within ~0.5m
-                'scan_interval': 1.0,
-                'adapter': 'hci1'  # TP-Link BLE Scanner #2 (Right side)
+                'rssi_threshold': -60,
+                'scan_interval': 0.5,
+                'batch_size': 1,
+                'adapter': 'hci1'  # Single scanner
             }
         ]
     }

@@ -14,8 +14,6 @@ import threading
 import time
 
 from app.database_models import DatabaseManager, Boat, Beacon, BoatBeaconAssignment, DetectionState, BoatStatus
-from app.fsm_engine import build_fsm_engine, IFSMEngine
-from app.entry_exit_fsm import FSMState
 from app.logging_config import get_logger
 
 # Use the system logger
@@ -29,27 +27,14 @@ class APIServer:
         CORS(self.app)
         
         self.db = DatabaseManager(db_path)
-        # Build pluggable FSM engine (auto-select door L/R engine on non-main branches)
-        import os, subprocess
-        if not os.getenv('FSM_ENGINE'):
-            try:
-                branch = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=os.path.dirname(__file__) or '.', text=True).strip()
-            except Exception:
-                branch = 'main'
-            if branch != 'main':
-                os.environ['FSM_ENGINE'] = 'app.door_lr_engine:DoorLREngine'
-        self.fsm: IFSMEngine = build_fsm_engine(
-            db_manager=self.db,
-            outer_scanner_id=outer_scanner_id,
-            inner_scanner_id=inner_scanner_id,
-            rssi_threshold=-80,
-            hysteresis=10,
-        )
+        
+        # Simple single-scanner mode - no FSM needed!
+        logger.info("🚀 Simple single-scanner mode - no complex FSM!", "INIT")
         
         self.setup_routes()
         self.setup_websocket_handlers()
         
-        # Background task for updating boat statuses
+        # Background task for marking boats OUT when beacon not seen
         self.status_update_thread = threading.Thread(target=self._update_boat_statuses, daemon=True)
         self.status_update_thread.start()
     
@@ -79,6 +64,10 @@ class APIServer:
                 
                 processed_count = 0
                 state_changes = []
+                
+                # Check if running in simple single-scanner mode
+                import os
+                single_scanner = os.getenv('SINGLE_SCANNER', '0') == '1'
                 
                 for obs in observations:
                     mac_address = obs.get('mac')
@@ -112,25 +101,36 @@ class APIServer:
                         processed_count += 1
                         continue
 
-                    # For multi-gate, route by gate if FSM supports it; otherwise pass scanner_id
-                    state_change = self.fsm.process_detection(scanner_id, beacon.id, rssi)
+                    # SIMPLE SINGLE-SCANNER MODE: Just mark IN on detection, background thread handles OUT
+                    if single_scanner:
+                        try:
+                            # Get current boat status
+                            boat_before = self.db.get_boat(assigned_boat.id)
+                            was_out = boat_before and getattr(boat_before, 'status', None) == BoatStatus.OUT
+                            
+                            # Always mark IN_HARBOR when detected
+                            self.db.update_boat_status(assigned_boat.id, BoatStatus.IN_HARBOR)
+                            logger.info(f"✅ Boat IN: {assigned_boat.name} @ {rssi}dBm", "SINGLE-SCANNER")
+                            
+                            # Set entry timestamp only on transition from OUT → IN
+                            if was_out:
+                                now_dt = datetime.now(timezone.utc)
+                                self.db.update_beacon_state(beacon.id, DetectionState.ENTERED, entry_timestamp=now_dt)
+                                try:
+                                    trip_id, duration = self.db.end_trip(assigned_boat.id, beacon.id, now_dt)
+                                    if trip_id:
+                                        logger.info(f"🛶 Trip ended: {assigned_boat.name} ({duration} min)", "TRIP")
+                                except Exception as e:
+                                    logger.error(f"End trip error: {e}", "TRIP")
+                        
+                        except Exception as e:
+                            logger.error(f"Single-scanner detection error: {e}", "SINGLE-SCANNER")
+                        
+                        processed_count += 1
+                        continue
                     
-                    if state_change:
-                        old_state, new_state = state_change
-                        boat_name = assigned_boat.name if assigned_boat else "Unknown"
-                        logger.info(f"Boat state change: {boat_name} ({mac_address}) - {old_state.value} → {new_state.value} (RSSI: {rssi} dBm)", "SCANNER")
-                        state_changes.append({
-                            'beacon_id': beacon.id,
-                            'mac_address': mac_address,
-                            'old_state': old_state.value,
-                            'new_state': new_state.value,
-                            'timestamp': datetime.now(timezone.utc).isoformat()
-                        , 'gate_id': gate_id, 'scanner_id': scanner_id })
-                    else:
-                        # Log regular detection for assigned beacons
-                        boat_name = assigned_boat.name if assigned_boat else "Unknown"
-                        logger.debug(f"Boat beacon detected: {boat_name} ({mac_address}) - RSSI: {rssi} dBm (no state change)", "SCANNER")
-                    
+                    # If not in single-scanner mode, we shouldn't be here!
+                    logger.warning(f"Dual-scanner mode not supported! Set SINGLE_SCANNER=1", "SCANNER")
                     processed_count += 1
                 
                 return jsonify({
