@@ -532,10 +532,22 @@ class DatabaseManager:
             else:
                 # Create new beacon
                 beacon_id = f"BC{int(now.timestamp() * 1000)}"
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO beacons (id, mac_address, name, status, last_seen, last_rssi, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)
-                """, (beacon_id, mac_address, name, BeaconStatus.UNCLAIMED.value, now, rssi, now, now))
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        beacon_id,
+                        mac_address,
+                        name,
+                        BeaconStatus.UNCLAIMED.value,
+                        None,               # last_seen
+                        rssi,               # last_rssi
+                        now,
+                        now,
+                    ),
+                )
             
             conn.commit()
             
