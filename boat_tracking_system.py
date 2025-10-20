@@ -1887,7 +1887,7 @@ class BoatTrackingSystem:
             white-space: nowrap;
         }
         .primary-btn:hover { filter: brightness(1.05); transform: translateY(-1px); }
-        .dashboard { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 20px; }
+        .dashboard { display: grid; grid-template-columns: 1.1fr 1fr 1fr 1fr; gap: 20px; }
         
         /* Mobile optimization (Portrait phones) */
         @media (max-width: 480px) {
@@ -1955,7 +1955,12 @@ class BoatTrackingSystem:
         
         /* Desktop optimization */
         @media (min-width: 1025px) {
-            .dashboard { grid-template-columns: 1.1fr 1fr 1fr; }
+            .dashboard { grid-template-columns: 1.1fr 1fr 1fr 1fr; }
+        }
+        
+        /* Large desktop - better spacing for 4 cards */
+        @media (min-width: 1400px) {
+            .dashboard { grid-template-columns: repeat(4, 1fr); }
         }
         
         /* Wide screens */
@@ -2092,6 +2097,14 @@ class BoatTrackingSystem:
                 <h2>Shed Presence</h2>
                 <div id="presenceInfo">
                     <p>Loading presence data...</p>
+                </div>
+            </div>
+            
+            <!-- Most Used Boats -->
+            <div class="card">
+                <h2>Most Used Boats</h2>
+                <div id="popularBoats">
+                    <p>Loading rankings...</p>
                 </div>
             </div>
             
@@ -2472,6 +2485,65 @@ class BoatTrackingSystem:
                 .catch(error => console.error('Error updating presence:', error));
         }
         
+        function updatePopularBoats() {
+            fetch('/api/boats')
+                .then(response => response.json())
+                .then(boats => {
+                    const container = document.getElementById('popularBoats');
+                    
+                    // Sort boats by water time (descending)
+                    const sorted = boats
+                        .filter(b => b.water_time_today_minutes !== null && b.water_time_today_minutes > 0)
+                        .sort((a, b) => b.water_time_today_minutes - a.water_time_today_minutes)
+                        .slice(0, 5); // Top 5
+                    
+                    if (sorted.length === 0) {
+                        container.innerHTML = '<p style="text-align: center; color: #666; padding: 20px 0;">No boats have been out today</p>';
+                        return;
+                    }
+                    
+                    let html = '<div style="padding: 10px 0;">';
+                    sorted.forEach((boat, index) => {
+                        const hours = Math.floor(boat.water_time_today_minutes / 60);
+                        const mins = boat.water_time_today_minutes % 60;
+                        const timeStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+                        
+                        html += `
+                            <div style="
+                                display: flex; justify-content: space-between; align-items: center;
+                                padding: 10px 12px; margin: 6px 0; background: rgba(255,255,255,0.03);
+                                border-radius: 8px; border-left: 3px solid #4a9eff;
+                            ">
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <span style="
+                                        font-size: 1.2rem; 
+                                        font-weight: bold; 
+                                        color: #4a9eff; 
+                                        min-width: 25px;
+                                        text-align: center;
+                                    ">#${index + 1}</span>
+                                    <div>
+                                        <div style="font-weight: bold; color: #e8eef2;">${boat.name}</div>
+                                        <div style="font-size: 0.85rem; color: #9fb2bd;">${boat.class_type}</div>
+                                    </div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <div style="font-weight: bold; color: #4ade80; font-size: 1.1rem;">${timeStr}</div>
+                                    <div style="font-size: 0.8rem; color: #9fb2bd;">on water</div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    
+                    container.innerHTML = html;
+                })
+                .catch(error => {
+                    console.error('Error updating popular boats:', error);
+                    document.getElementById('popularBoats').innerHTML = '<p style="color: #ef4444;">Error loading rankings</p>';
+                });
+        }
+        
         function updateAllData() {
             const indicator = document.getElementById('updateIndicator');
             indicator.classList.add('show');
@@ -2481,6 +2553,7 @@ class BoatTrackingSystem:
             updateBoats();
             updateBeacons();
             updatePresence();
+            updatePopularBoats();
             updateOverdue();
             updateClosingTime();
             
