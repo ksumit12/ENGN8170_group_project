@@ -2511,7 +2511,7 @@ class BoatTrackingSystem:
                         html += `
                             <div style="
                                 display: flex; justify-content: space-between; align-items: center;
-                                padding: 10px 12px; margin: 6px 0; background: rgba(255,255,255,0.03);
+                                padding: 10px 12px; margin: 6px 0; background: rgba(255,255,255,0.05);
                                 border-radius: 8px; border-left: 3px solid #4a9eff;
                             ">
                                 <div style="display: flex; align-items: center; gap: 12px;">
@@ -2523,13 +2523,13 @@ class BoatTrackingSystem:
                                         text-align: center;
                                     ">#${index + 1}</span>
                                     <div>
-                                        <div style="font-weight: bold; color: #e8eef2;">${boat.name}</div>
-                                        <div style="font-size: 0.85rem; color: #9fb2bd;">${boat.class_type}</div>
+                                        <div style="font-weight: 600; color: #fff; font-size: 0.95rem;">${boat.name}</div>
+                                        <div style="font-size: 0.8rem; color: #cbd5e0;">${boat.class_type}</div>
                                     </div>
                                 </div>
                                 <div style="text-align: right;">
                                     <div style="font-weight: bold; color: #4ade80; font-size: 1.1rem;">${timeStr}</div>
-                                    <div style="font-size: 0.8rem; color: #9fb2bd;">on water</div>
+                                    <div style="font-size: 0.75rem; color: #cbd5e0;">on water</div>
                                 </div>
                             </div>
                         `;
