@@ -594,16 +594,8 @@ class APIServer:
                         
                         # Only update and log if status changed
                         if boat.status != new_status:
-                            # If we have not seen this beacon live since process start, do not change
-                            # status or stamp timestamps yet (prevents startup stamping based on stale DB rows)
-                            try:
-                                if beacon and beacon.id not in getattr(self, '_seen_live_beacons', set()):
-                                    continue
-                            except Exception:
-                                pass
                             # Startup guard: do not force OUT when we've never seen the beacon yet
                             if new_status == BoatStatus.OUT and last_seen_dt is None:
-                                # Skip any OUT stamping or status change until we have at least one detection
                                 continue
                             
                             # Skip startup grace - let detection handler manage timestamps properly

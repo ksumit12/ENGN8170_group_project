@@ -1847,7 +1847,7 @@ class BoatTrackingSystem:
             
             <!-- Boats Outside (replaces Beacons Status) -->
             <div class="card">
-                <h2>Boats Outside</h2>
+                <h2>Boats Outside <span id="outsideCount" style="color:var(--danger);font-weight:800;"></span></h2>
                 <div id="outsideList">
                     <p>Loading boats...</p>
                 </div>
@@ -2142,6 +2142,8 @@ class BoatTrackingSystem:
                     boatsList.innerHTML = html;
                     const outsideList = document.getElementById('outsideList');
                     if (outsideList) outsideList.innerHTML = outsideHtml || '<p>No boats outside</p>';
+                    const outsideCount = document.getElementById('outsideCount');
+                    if (outsideCount) outsideCount.textContent = outsideBoats.length > 0 ? `(${outsideBoats.length})` : '';
                 })
                 .catch(error => console.error('Error updating boats:', error));
         }
