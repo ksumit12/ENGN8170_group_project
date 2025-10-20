@@ -867,15 +867,15 @@ class BoatTrackingSystem:
                         opened = ts_utc
                     elif event_type == 'IN_SHED' and opened is not None:
                         dur = (ts_utc - opened).total_seconds() / 60.0
-                        if dur > 0:
-                            total_minutes += int(dur)
-                            count += 1
-                            if include_sessions:
-                                sessions.append({
-                                    'start': opened.isoformat(), 
-                                    'end': ts_utc.isoformat(), 
-                                    'minutes': int(dur)
-                                })
+                        # Include ALL sessions, even 0-minute ones (quick in/out)
+                        total_minutes += max(0, int(dur))
+                        count += 1
+                        if include_sessions:
+                            sessions.append({
+                                'start': opened.isoformat(), 
+                                'end': ts_utc.isoformat(), 
+                                'minutes': int(dur)
+                            })
                         opened = None
                 
                 # Get additional boat details
@@ -966,16 +966,16 @@ class BoatTrackingSystem:
                             opened = ts_utc
                         elif event_type == 'IN_SHED' and opened is not None:
                             duration = int((ts_utc - opened).total_seconds() / 60.0)
-                            if duration > 0:
-                                w.writerow([
-                                    sequence,
-                                    boat.name,
-                                    boat.class_type,
-                                    opened.strftime('%Y-%m-%d %H:%M:%S'),
-                                    ts_utc.strftime('%Y-%m-%d %H:%M:%S'),
-                                    duration
-                                ])
-                                sequence += 1
+                            # Include ALL sessions, even 0-minute ones
+                            w.writerow([
+                                sequence,
+                                boat.name,
+                                boat.class_type,
+                                opened.strftime('%Y-%m-%d %H:%M:%S'),
+                                ts_utc.strftime('%Y-%m-%d %H:%M:%S'),
+                                duration
+                            ])
+                            sequence += 1
                             opened = None
             else:
                 # Export summary data
