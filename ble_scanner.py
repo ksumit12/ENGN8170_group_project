@@ -354,11 +354,23 @@ class BLEScanner:
         
         scanner = BleakScanner(self.detection_callback, **scanner_kwargs)
 
-        try:
-            await scanner.start()
-            logger.info("BLE scanner started successfully", "SCANNER")
-            self.running = True
+        # Retry logic for "Operation already in progress" errors
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                await scanner.start()
+                logger.info("BLE scanner started successfully", "SCANNER")
+                self.running = True
+                break
+            except Exception as e:
+                if "already in progress" in str(e).lower() and attempt < max_retries - 1:
+                    logger.warning(f"BLE adapter busy, retrying in 2s... (attempt {attempt + 1}/{max_retries})", "SCANNER")
+                    await asyncio.sleep(2)
+                else:
+                    logger.error(f"BLE scan start failed: {e}", "SCANNER")
+                    return
 
+        try:
             while self.running:
                 await asyncio.sleep(self.config.scan_interval)
                 with self.lock:
@@ -374,7 +386,10 @@ class BLEScanner:
             logger.error(f"BLE scan error: {e}", "SCANNER")
         finally:
             self.running = False
-            await scanner.stop()
+            try:
+                await scanner.stop()
+            except Exception:
+                pass
             logger.info("BLE scanner stopped", "SCANNER")
 
     def start_scanning(self):
