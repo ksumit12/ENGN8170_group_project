@@ -603,14 +603,16 @@ class APIServer:
                             elif new_status == BoatStatus.IN_HARBOR:
                                 try:
                                     now_ts = datetime.now(timezone.utc)
-                                    # Optionally suppress the very first entry after startup for demo
-                                    if suppress_initial_entry and cur_state in (FSMState.IDLE, FSMState.ENTERED):
-                                        # Do not stamp a new entry timestamp; only mark entered state
-                                        self.db.update_beacon_state(beacon.id, DetectionState.ENTERED)
-                                    else:
+                                    # Only stamp entry if we are returning from OUT status
+                                    if boat.status == BoatStatus.OUT:
                                         self.db.update_beacon_state(beacon.id, DetectionState.ENTERED, entry_timestamp=now_ts)
-                                        # End trip if there was an open one
                                         self.db.end_trip(boat.id, beacon.id, now_ts)
+                                    else:
+                                        # Optionally suppress the very first entry after startup
+                                        if suppress_initial_entry:
+                                            self.db.update_beacon_state(beacon.id, DetectionState.ENTERED)
+                                        else:
+                                            self.db.update_beacon_state(beacon.id, DetectionState.ENTERED, entry_timestamp=now_ts)
                                 except Exception:
                                     pass
 
