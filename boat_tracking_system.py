@@ -2523,8 +2523,8 @@ class BoatTrackingSystem:
                                         text-align: center;
                                     ">#${index + 1}</span>
                                     <div>
-                                        <div style="font-weight: 600; color: #fff; font-size: 0.95rem;">${boat.name}</div>
-                                        <div style="font-size: 0.8rem; color: #cbd5e0;">${boat.class_type}</div>
+                                        <div style="font-weight: 700; color: #ffffff !important; font-size: 1rem;">${boat.name}</div>
+                                        <div style="font-size: 0.85rem; color: #a0aec0 !important;">${boat.class_type}</div>
                                     </div>
                                 </div>
                                 <div style="text-align: right;">
