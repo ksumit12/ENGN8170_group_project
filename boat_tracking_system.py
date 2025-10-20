@@ -1216,8 +1216,17 @@ class BoatTrackingSystem:
                 except Exception:
                     present_adapters = set()
             
+            # SINGLE_SCANNER override: if env set, only start the specified scanner
+            single_scanner = os.getenv('SINGLE_SCANNER', '0') == '1'
+            preferred_id = os.getenv('SCANNER_ID')
+            
             for scanner_config in self.config['scanners']:
                 try:
+                    # Skip scanners if in single-scanner mode and this isn't the preferred one
+                    if single_scanner and preferred_id and scanner_config.get('id') != preferred_id:
+                        logger.info(f"Skipping scanner {scanner_config['id']} - single scanner mode, using {preferred_id}", "SCANNER")
+                        continue
+                    
                     adapter = scanner_config.get('adapter', None)
                     if adapter and present_adapters and adapter not in present_adapters:
                         logger.warning(f"Skipping scanner {scanner_config['id']} - adapter {adapter} not found (present: {sorted(present_adapters)})", "SCANNER")
