@@ -611,6 +611,12 @@ class APIServer:
                             if new_status == BoatStatus.OUT and last_seen_dt is None:
                                 # Skip any OUT stamping or status change until we have at least one detection
                                 continue
+                            
+                            # Additional startup guard: prevent OUT status during initial grace period
+                            startup_grace_period = 30  # seconds after server start
+                            if new_status == BoatStatus.OUT and (time.time() - self._started_at) < startup_grace_period:
+                                # During startup grace period, don't mark boats as OUT
+                                continue
                             # Demo-aware timestamping: only record timestamps on OUT/IN transitions.
                             try:
                                 # Look up current FSM state

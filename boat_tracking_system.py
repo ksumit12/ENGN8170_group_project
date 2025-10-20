@@ -1070,16 +1070,18 @@ class BoatTrackingSystem:
                 output = io.StringIO()
                 writer = csv.writer(output)
                 
-                # Write header
+                # Write header with enhanced maintenance insights
                 writer.writerow([
-                    'boat_id', 'boat_name', 'boat_class', 'trip_date', 
-                    'exit_time', 'entry_time', 'duration_minutes', 
-                    'duration_hours', 'trip_id'
+                    'sequence_number', 'boat_id', 'boat_name', 'boat_class', 'trip_date', 
+                    'exit_time', 'entry_time', 'duration_minutes', 'duration_hours', 
+                    'trip_id', 'movement_type', 'time_since_last_trip_minutes',
+                    'daily_trip_count', 'weekly_trip_count', 'maintenance_notes'
                 ])
                 
-                # Write water time data
-                for entry in water_time_data:
+                # Write water time data with enhanced insights
+                for i, entry in enumerate(water_time_data, 1):
                     writer.writerow([
+                        i,  # sequence_number
                         entry.get('boat_id', ''),
                         entry.get('boat_name', ''),
                         entry.get('boat_class', ''),
@@ -1088,7 +1090,12 @@ class BoatTrackingSystem:
                         entry.get('entry_time', ''),
                         entry.get('duration_minutes', ''),
                         entry.get('duration_hours', ''),
-                        entry.get('trip_id', '')
+                        entry.get('trip_id', ''),
+                        entry.get('movement_type', ''),
+                        entry.get('time_since_last_trip_minutes', ''),
+                        entry.get('daily_trip_count', ''),
+                        entry.get('weekly_trip_count', ''),
+                        entry.get('maintenance_notes', '')
                     ])
                 
                 output.seek(0)
@@ -1251,7 +1258,7 @@ class BoatTrackingSystem:
             return []
     
     def _export_boat_water_time_data(self, start_date, end_date, boat_id=None):
-        """Export boat water time data within a date range."""
+        """Export boat water time data within a date range with enhanced maintenance insights."""
         try:
             water_time_data = []
             
@@ -1275,7 +1282,7 @@ class BoatTrackingSystem:
                         WHERE bt.trip_date >= ? AND bt.trip_date <= ? 
                         AND bt.boat_id = ?
                         AND bt.duration_minutes IS NOT NULL
-                        ORDER BY bt.trip_date DESC, bt.exit_time DESC
+                        ORDER BY bt.exit_time ASC
                     """
                     params = (start_date.date(), end_date.date(), boat_id)
                 else:
@@ -1293,15 +1300,59 @@ class BoatTrackingSystem:
                         JOIN boats b ON bt.boat_id = b.id
                         WHERE bt.trip_date >= ? AND bt.trip_date <= ? 
                         AND bt.duration_minutes IS NOT NULL
-                        ORDER BY bt.trip_date DESC, bt.exit_time DESC
+                        ORDER BY bt.exit_time ASC
                     """
                     params = (start_date.date(), end_date.date())
                 
                 cursor.execute(query, params)
+                all_trips = cursor.fetchall()
                 
-                for row in cursor.fetchall():
+                # Calculate maintenance insights for each trip
+                boat_stats = {}  # Track stats per boat
+                
+                for i, row in enumerate(all_trips):
+                    boat_id_val = row[0]
                     duration_minutes = row[6] if row[6] else 0
                     duration_hours = round(duration_minutes / 60.0, 2) if duration_minutes else 0
+                    
+                    # Initialize boat stats if not exists
+                    if boat_id_val not in boat_stats:
+                        boat_stats[boat_id_val] = {
+                            'daily_trips': {},
+                            'weekly_trips': {},
+                            'last_exit_time': None
+                        }
+                    
+                    # Calculate time since last trip
+                    time_since_last = None
+                    if boat_stats[boat_id_val]['last_exit_time']:
+                        try:
+                            last_exit = datetime.fromisoformat(boat_stats[boat_id_val]['last_exit_time'])
+                            current_exit = datetime.fromisoformat(row[4])
+                            time_since_last = int((current_exit - last_exit).total_seconds() / 60)
+                        except Exception:
+                            time_since_last = None
+                    
+                    # Update daily and weekly trip counts
+                    trip_date = row[3]
+                    week_start = trip_date - timedelta(days=trip_date.weekday())
+                    
+                    boat_stats[boat_id_val]['daily_trips'][trip_date] = boat_stats[boat_id_val]['daily_trips'].get(trip_date, 0) + 1
+                    boat_stats[boat_id_val]['weekly_trips'][week_start] = boat_stats[boat_id_val]['weekly_trips'].get(week_start, 0) + 1
+                    
+                    # Generate maintenance notes
+                    maintenance_notes = []
+                    if duration_minutes > 180:  # More than 3 hours
+                        maintenance_notes.append("Long session - check for wear")
+                    if time_since_last and time_since_last < 30:  # Less than 30 min between trips
+                        maintenance_notes.append("Frequent use - monitor stress")
+                    if boat_stats[boat_id_val]['daily_trips'][trip_date] > 5:  # More than 5 trips per day
+                        maintenance_notes.append("Heavy daily usage")
+                    if boat_stats[boat_id_val]['weekly_trips'][week_start] > 20:  # More than 20 trips per week
+                        maintenance_notes.append("High weekly usage - schedule inspection")
+                    
+                    # Determine movement type
+                    movement_type = "EXIT" if i == 0 or all_trips[i-1][0] != boat_id_val else "CONTINUATION"
                     
                     water_time_data.append({
                         'boat_id': row[0],
@@ -1312,8 +1363,16 @@ class BoatTrackingSystem:
                         'entry_time': row[5],
                         'duration_minutes': duration_minutes,
                         'duration_hours': duration_hours,
-                        'trip_id': row[7]
+                        'trip_id': row[7],
+                        'movement_type': movement_type,
+                        'time_since_last_trip_minutes': time_since_last,
+                        'daily_trip_count': boat_stats[boat_id_val]['daily_trips'][trip_date],
+                        'weekly_trip_count': boat_stats[boat_id_val]['weekly_trips'][week_start],
+                        'maintenance_notes': '; '.join(maintenance_notes) if maintenance_notes else 'Normal usage'
                     })
+                    
+                    # Update last exit time for this boat
+                    boat_stats[boat_id_val]['last_exit_time'] = row[4]
             
             return water_time_data
             
@@ -3241,7 +3300,10 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
         <h1>Boat Usage Reports</h1>
         <div class="actions">
           <button class="btn btn-success" onclick="exportData()">
-            Export CSV
+            Export Usage CSV
+          </button>
+          <button class="btn btn-primary" onclick="exportWaterTimeData()">
+            Export Water Time CSV
           </button>
         </div>
       </div>
@@ -3483,6 +3545,48 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
       
       const url = '/api/reports/usage/export.csv?' + params.toString();
       window.open(url, '_blank');
+    }
+
+    async function exportWaterTimeData() {
+      const fromDate = document.getElementById('fromDate').value;
+      const toDate = document.getElementById('toDate').value;
+      const boatId = document.getElementById('boatSelect').value;
+      
+      if (!fromDate || !toDate) {
+        alert('Please select both start and end dates');
+        return;
+      }
+      
+      try {
+        const payload = {
+          start_date: fromDate,
+          end_date: toDate
+        };
+        if (boatId) payload.boat_id = boatId;
+        
+        const response = await fetch('/api/boats/export-water-time', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `boat_water_time_${fromDate}_to_${toDate}.csv`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+          alert('Water time data exported successfully!');
+        } else {
+          alert('Export failed: ' + (await response.text()));
+        }
+      } catch (error) {
+        alert('Export failed: ' + error.message);
+      }
     }
 
     function displaySessions(data, boatId) {
