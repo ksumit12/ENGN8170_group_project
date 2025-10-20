@@ -309,68 +309,68 @@ class BoatTrackingSystem:
                 result = []
                 
                 for boat in boats:
-                beacon = self.db.get_beacon_by_boat(boat.id)
-                if not beacon:
-                    # Skip boats with no assigned beacon to avoid clutter
-                    continue
-                beacon_state = None
-                last_seen_ts = 0
-                entry_ts = None
-                exit_ts = None
-                if beacon and beacon.last_seen:
-                    ls = beacon.last_seen
-                    if isinstance(ls, str):
-                        try:
-                            ls = datetime.fromisoformat(ls)
-                        except Exception:
-                            last_seen_ts = 0
-                            ls = None
-                    if ls:
-                        # Ensure timezone awareness
-                        if ls.tzinfo is None:
-                            ls = ls.replace(tzinfo=timezone.utc)
-                        last_seen_ts = ls.timestamp()
-                    else:
-                        last_seen_ts = 0
-                # Fetch entry/exit timestamps from FSM state (if any)
-                try:
-                    with self.db.get_connection() as conn:
-                        c = conn.cursor()
-                        c.execute("SELECT entry_timestamp, exit_timestamp FROM beacon_states WHERE beacon_id = ?", (beacon.id,))
-                        row = c.fetchone()
-                        if row:
-                            entry_ts = row[0]
-                            exit_ts = row[1]
-                except Exception:
+                    beacon = self.db.get_beacon_by_boat(boat.id)
+                    if not beacon:
+                        # Skip boats with no assigned beacon to avoid clutter
+                        continue
+                    beacon_state = None
+                    last_seen_ts = 0
                     entry_ts = None
                     exit_ts = None
-                
-                # Get water time today for this boat
-                water_time_today = 0
-                try:
-                    water_time_today = self.db.get_boat_water_time_today(boat.id)
-                except Exception:
-                    pass
-                
-                result.append({
-                    'id': boat.id,
-                    'name': boat.name,
-                    'class_type': boat.class_type,
-                    'status': boat.status.value,
-                    'op_status': getattr(boat, 'op_status', 'ACTIVE'),
-                    'status_updated_at': getattr(boat, 'status_updated_at', None),
-                    'last_entry': (entry_ts.isoformat() if hasattr(entry_ts, 'isoformat') else entry_ts) if entry_ts else None,
-                    'last_exit': (exit_ts.isoformat() if hasattr(exit_ts, 'isoformat') else exit_ts) if exit_ts else None,
-                    'water_time_today_minutes': water_time_today,
-                    'beacon': {
-                        'id': beacon.id if beacon else None,
-                        'mac_address': beacon.mac_address if beacon else None,
-                        'last_seen': beacon.last_seen.isoformat() if beacon and not isinstance(beacon.last_seen, str) and beacon.last_seen else (beacon.last_seen if beacon and isinstance(beacon.last_seen, str) else None),
-                        'last_rssi': beacon.last_rssi if beacon else None
-                    } if beacon else None,
-                    'beacon_state': beacon_state,
-                    '_last_seen_ts': last_seen_ts
-                })
+                    if beacon and beacon.last_seen:
+                        ls = beacon.last_seen
+                        if isinstance(ls, str):
+                            try:
+                                ls = datetime.fromisoformat(ls)
+                            except Exception:
+                                last_seen_ts = 0
+                                ls = None
+                        if ls:
+                            # Ensure timezone awareness
+                            if ls.tzinfo is None:
+                                ls = ls.replace(tzinfo=timezone.utc)
+                            last_seen_ts = ls.timestamp()
+                        else:
+                            last_seen_ts = 0
+                    # Fetch entry/exit timestamps from FSM state (if any)
+                    try:
+                        with self.db.get_connection() as conn:
+                            c = conn.cursor()
+                            c.execute("SELECT entry_timestamp, exit_timestamp FROM beacon_states WHERE beacon_id = ?", (beacon.id,))
+                            row = c.fetchone()
+                            if row:
+                                entry_ts = row[0]
+                                exit_ts = row[1]
+                    except Exception:
+                        entry_ts = None
+                        exit_ts = None
+                    
+                    # Get water time today for this boat
+                    water_time_today = 0
+                    try:
+                        water_time_today = self.db.get_boat_water_time_today(boat.id)
+                    except Exception:
+                        pass
+                    
+                    result.append({
+                        'id': boat.id,
+                        'name': boat.name,
+                        'class_type': boat.class_type,
+                        'status': boat.status.value,
+                        'op_status': getattr(boat, 'op_status', 'ACTIVE'),
+                        'status_updated_at': getattr(boat, 'status_updated_at', None),
+                        'last_entry': (entry_ts.isoformat() if hasattr(entry_ts, 'isoformat') else entry_ts) if entry_ts else None,
+                        'last_exit': (exit_ts.isoformat() if hasattr(exit_ts, 'isoformat') else exit_ts) if exit_ts else None,
+                        'water_time_today_minutes': water_time_today,
+                        'beacon': {
+                            'id': beacon.id if beacon else None,
+                            'mac_address': beacon.mac_address if beacon else None,
+                            'last_seen': beacon.last_seen.isoformat() if beacon and not isinstance(beacon.last_seen, str) and beacon.last_seen else (beacon.last_seen if beacon and isinstance(beacon.last_seen, str) else None),
+                            'last_rssi': beacon.last_rssi if beacon else None
+                        } if beacon else None,
+                        'beacon_state': beacon_state,
+                        '_last_seen_ts': last_seen_ts
+                    })
                 
                 # Sort so active boats (in_harbor) are first, then by most recently seen beacon
                 result.sort(key=lambda b: (
