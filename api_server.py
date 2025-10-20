@@ -340,6 +340,7 @@ class APIServer:
             them locally.
             """
             try:
+                import os, json
                 # Pull core knobs from FSM/engine and merge calibration if present
                 settings = {
                     'outer_scanner_id': getattr(self.fsm, 'outer_scanner_id', None),
@@ -375,7 +376,6 @@ class APIServer:
                     }
                 }
                 # Try to load calibration from calibration/sessions/latest/door_lr_calib.json
-                import os, json
                 calib_path = os.path.join('calibration', 'sessions', 'latest', 'door_lr_calib.json')
                 if not os.path.exists(calib_path):
                     calib_path = os.path.join('calibration', 'door_lr_calib.json')
