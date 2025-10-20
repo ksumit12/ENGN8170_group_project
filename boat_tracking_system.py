@@ -913,52 +913,70 @@ class BoatTrackingSystem:
             w = csv.writer(buf)
             
             if include_trips:
-                # Export detailed trip logs (chronological)
+                # Export detailed trip logs from shed_events
                 from_date = data.get('from')
                 to_date = data.get('to')
                 boat_id_filter = data.get('boatId')
                 
                 # Parse dates
                 if from_date:
-                    from_dt = datetime.fromisoformat(from_date)
+                    start_dt = datetime.fromisoformat(from_date).replace(tzinfo=timezone.utc)
                 else:
-                    from_dt = datetime.now(timezone.utc) - timedelta(days=30)
+                    start_dt = datetime.now(timezone.utc) - timedelta(days=30)
                 
                 if to_date:
-                    to_dt = datetime.fromisoformat(to_date)
+                    end_dt = datetime.fromisoformat(to_date).replace(tzinfo=timezone.utc)
                 else:
-                    to_dt = datetime.now(timezone.utc)
+                    end_dt = datetime.now(timezone.utc)
                 
-                # Get detailed trip data
-                trip_data = self._export_boat_water_time_data(from_dt, to_dt, boat_id_filter)
+                # Get all boats
+                boats = self.db.get_all_boats()
                 
                 # Write header
-                w.writerow([
-                    'sequence_number', 'boat_id', 'boat_name', 'boat_class', 'trip_date', 
-                    'exit_time', 'entry_time', 'duration_minutes', 'duration_hours', 
-                    'trip_id', 'movement_type', 'time_since_last_trip_minutes',
-                    'daily_trip_count', 'weekly_trip_count', 'maintenance_notes'
-                ])
+                w.writerow(['Sequence', 'Boat Name', 'Boat Class', 'Exit Time', 'Entry Time', 'Duration (min)'])
                 
-                # Write trip data
-                for i, entry in enumerate(trip_data, 1):
-                    w.writerow([
-                        i,
-                        entry.get('boat_id', ''),
-                        entry.get('boat_name', ''),
-                        entry.get('boat_class', ''),
-                        entry.get('trip_date', ''),
-                        entry.get('exit_time', ''),
-                        entry.get('entry_time', ''),
-                        entry.get('duration_minutes', ''),
-                        entry.get('duration_hours', ''),
-                        entry.get('trip_id', ''),
-                        entry.get('movement_type', ''),
-                        entry.get('time_since_last_trip_minutes', ''),
-                        entry.get('daily_trip_count', ''),
-                        entry.get('weekly_trip_count', ''),
-                        entry.get('maintenance_notes', '')
-                    ])
+                # Collect all sessions from shed_events
+                sequence = 1
+                for boat in boats:
+                    if boat_id_filter and boat.id != boat_id_filter:
+                        continue
+                    
+                    beacon = self.db.get_beacon_by_boat(boat.id)
+                    if not beacon:
+                        continue
+                    
+                    # Get shed_events for this boat
+                    with self.db.get_connection() as conn:
+                        cur = conn.cursor()
+                        cur.execute("""
+                            SELECT event_type, ts_utc FROM shed_events
+                            WHERE boat_id = ? AND ts_utc >= ? AND ts_utc <= ?
+                            ORDER BY ts_utc ASC
+                        """, (boat.id, start_dt.isoformat(), end_dt.isoformat()))
+                        events = cur.fetchall()
+                    
+                    # Pair OUT -> IN as sessions
+                    opened = None
+                    for event_type, ts_utc_str in events:
+                        ts_utc = datetime.fromisoformat(ts_utc_str) if isinstance(ts_utc_str, str) else ts_utc_str
+                        if ts_utc.tzinfo is None:
+                            ts_utc = ts_utc.replace(tzinfo=timezone.utc)
+                        
+                        if event_type == 'OUT_SHED' and opened is None:
+                            opened = ts_utc
+                        elif event_type == 'IN_SHED' and opened is not None:
+                            duration = int((ts_utc - opened).total_seconds() / 60.0)
+                            if duration > 0:
+                                w.writerow([
+                                    sequence,
+                                    boat.name,
+                                    boat.class_type,
+                                    opened.strftime('%Y-%m-%d %H:%M:%S'),
+                                    ts_utc.strftime('%Y-%m-%d %H:%M:%S'),
+                                    duration
+                                ])
+                                sequence += 1
+                            opened = None
             else:
                 # Export summary data
                 with self.web_app.test_request_context('/api/reports/usage', query_string=data):
@@ -3679,11 +3697,11 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
         </table>
       </div>
 
-      <div class="table-container" style="margin-top:16px;" id="sessionsContainer" hidden>
+      <div class="table-container" style="margin-top:16px;" id="sessionsContainer">
         <table>
           <thead>
             <tr>
-              <th colspan="4">Sessions (Exit→Enter) for Selected Boat and Date Range</th>
+              <th colspan="4">Individual Trip Logs (All Sessions)</th>
             </tr>
             <tr>
               <th>Boat</th>
@@ -3693,7 +3711,7 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
             </tr>
           </thead>
           <tbody id="sessionRows">
-            <tr><td colspan="4" class="no-data">Select a boat to view sessions</td></tr>
+            <tr><td colspan="4" class="no-data">Loading sessions...</td></tr>
           </tbody>
         </table>
       </div>
@@ -3855,21 +3873,35 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
     function displaySessions(data, boatId) {
       const container = document.getElementById('sessionsContainer');
       const tbody = document.getElementById('sessionRows');
-      if (!boatId) {
-        container.hidden = true;
-        return;
-      }
-      const boat = data.find(b => b.boat_id === boatId);
-      if (!boat || !boat.sessions || boat.sessions.length === 0) {
-        container.hidden = false;
+      
+      // Collect ALL sessions from ALL boats (or filtered boat)
+      let allSessions = [];
+      data.forEach(boat => {
+        if (boatId && boat.boat_id !== boatId) return; // Skip if filtering by boat
+        if (boat.sessions && boat.sessions.length > 0) {
+          boat.sessions.forEach(s => {
+            allSessions.push({
+              boat_name: boat.boat_name,
+              start: s.start,
+              end: s.end,
+              minutes: s.minutes
+            });
+          });
+        }
+      });
+      
+      if (allSessions.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" class="no-data">No sessions found in this range</td></tr>';
         return;
       }
-      container.hidden = false;
-      tbody.innerHTML = boat.sessions.map(s => {
+      
+      // Sort by exit time (most recent first)
+      allSessions.sort((a, b) => new Date(b.start) - new Date(a.start));
+      
+      tbody.innerHTML = allSessions.map(s => {
         const fmt = (iso) => new Date(iso).toLocaleString();
         return `<tr>
-          <td>${boat.boat_name}</td>
+          <td>${s.boat_name}</td>
           <td>${fmt(s.start)}</td>
           <td>${fmt(s.end)}</td>
           <td class="number-cell">${s.minutes}</td>
