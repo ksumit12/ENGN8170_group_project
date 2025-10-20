@@ -4,12 +4,16 @@
 
 cd "$(dirname "$0")"
 
-echo "🧹 Cleaning up..."
+echo "Cleaning up..."
 sudo pkill -9 -f boat_tracking 2>/dev/null || true
 sudo pkill -9 -f "python3.*boat_tracking" 2>/dev/null || true
 sudo fuser -k 5000/tcp 2>/dev/null || true
 sudo fuser -k 8000/tcp 2>/dev/null || true
-sleep 2
+
+# Restart Bluetooth to clear any BLE adapter locks
+echo "Restarting Bluetooth service..."
+sudo systemctl restart bluetooth
+sleep 3
 
 echo " Starting simple single-scanner mode..."
 
