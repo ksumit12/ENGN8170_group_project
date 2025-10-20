@@ -304,60 +304,11 @@ class APIServer:
 
         @self.app.route('/api/v1/fsm-settings', methods=['GET'])
         def get_fsm_settings():
-            """Expose current FSM-related thresholds/settings as the single source of truth
-            for all scanners. Scanners should consume these values and must not override
-            them locally.
-            """
-            try:
-                # Pull core knobs from FSM/engine and merge calibration if present
-                settings = {
-                    'outer_scanner_id': getattr(self.fsm, 'outer_scanner_id', None),
-                    'inner_scanner_id': getattr(self.fsm, 'inner_scanner_id', None),
-                    'rssi_threshold': getattr(self.fsm, 'rssi_threshold', None),
-                    'hysteresis_db': getattr(self.fsm, 'hysteresis', None),
-                    'pair_windows_s': {
-                        'enter': getattr(self.fsm, 'w_pair_enter_s', None),
-                        'exit': getattr(self.fsm, 'w_pair_exit_s', None),
-                    },
-                    'dominance_windows_s': {
-                        'enter': getattr(self.fsm, 'dom_enter_s', None),
-                        'exit': getattr(self.fsm, 'dom_exit_s', None),
-                    },
-                    'weak_timeout_s': getattr(self.fsm, 'weak_timeout_s', None),
-                    'absent_timeout_s': getattr(self.fsm, 'absent_timeout_s', None),
-                    'rssi_floor_dbm': getattr(self.fsm, 'rssi_floor_dbm', None),
-                    'door_lr': {
-                        'enabled': True,
-                        'defaults': {
-                            'active_dbm': -70,
-                            'energy_dbm': -65,
-                            'delta_db': 8,
-                            'dwell_s': 0.20,
-                            'window_s': 1.20,
-                            'tau_min_s': 0.12,
-                            'cooldown_s': 3.0,
-                            'slope_min_db_per_s': 10.0,
-                            'min_peak_sep_s': 0.12,
-                        },
-                        'calibration': {}
-                    }
-                }
-                # Try to load calibration from calibration/sessions/latest/door_lr_calib.json
-                import os, json
-                calib_path = os.path.join('calibration', 'sessions', 'latest', 'door_lr_calib.json')
-                if not os.path.exists(calib_path):
-                    calib_path = os.path.join('calibration', 'door_lr_calib.json')
-                try:
-                    if os.path.exists(calib_path):
-                        with open(calib_path, 'r') as f:
-                            settings['door_lr']['calibration'] = json.load(f)
-                except Exception as e:
-                    logger.warning(f"Failed to read calibration file: {e}", "FSM")
-                return jsonify(settings)
-            except Exception as e:
-                logger.error(f"Error returning FSM settings: {e}")
-                return jsonify({'error': str(e)}), 500
-        
+            """Simple settings for single-scanner mode - no FSM needed."""
+            return jsonify({
+                'rssi_threshold': -60,
+                'active_window_seconds': 10
+            })
         @self.app.route('/api/v1/presence/<boat_id>', methods=['GET'])
         def get_boat_presence(boat_id):
             """Get presence status for specific boat."""
