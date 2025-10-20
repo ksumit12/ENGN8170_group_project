@@ -2664,15 +2664,15 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
     async function login(){
       const user=document.getElementById('user').value.trim();
       const pass=document.getElementById('pass').value.trim();
+      if(!user || !pass){ alert('Please enter username and password'); return; }
       try{
         const r=await fetch('/admin/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user,pass,dry:true})});
-        if(r.status===401){ alert('Unauthorized'); return; }
-        if(!r.ok){ alert('Server error'); return; }
+        if(r.status===401){ alert('Invalid credentials'); return; }
+        if(!r.ok){ alert('Login failed'); return; }
         CRED={user,pass};
         document.getElementById('actions').style.display='block';
         loadClosing();
-        loadBoats();
-      }catch(e){ alert('Network error: '+e); }
+      }catch(e){ alert('Login error: '+e); }
     }
     async function loadClosing(){
       try{
