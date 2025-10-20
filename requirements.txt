@@ -5,3 +5,5 @@ requests==2.31.0
 bleak==0.21.1
 asyncio-mqtt==0.16.1
 matplotlib==3.8.4
+pyopenssl==24.0.0
+sqlcipher3==0.5.2

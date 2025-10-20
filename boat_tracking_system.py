@@ -1479,11 +1479,28 @@ class BoatTrackingSystem:
     def _run_web_dashboard(self):
         """Internal method to run web dashboard with error handling."""
         try:
-            self.web_app.run(
-                host=self.config['web_host'],
-                port=self.config['web_port'],
-                debug=False
-            )
+            # Check if SSL certificates exist for HTTPS
+            ssl_cert = 'ssl/cert.pem'
+            ssl_key = 'ssl/key.pem'
+            
+            if os.path.exists(ssl_cert) and os.path.exists(ssl_key):
+                # Run with HTTPS
+                logger.info("Starting web dashboard with HTTPS", "WEB")
+                self.web_app.run(
+                    host=self.config['web_host'],
+                    port=self.config['web_port'],
+                    debug=False,
+                    ssl_context=(ssl_cert, ssl_key)
+                )
+            else:
+                # Run with HTTP (fallback)
+                logger.warning("SSL certificates not found. Running with HTTP.", "WEB")
+                logger.warning("Run ./generate_ssl_cert.sh to enable HTTPS", "WEB")
+                self.web_app.run(
+                    host=self.config['web_host'],
+                    port=self.config['web_port'],
+                    debug=False
+                )
         except Exception as e:
             logger.critical(f"Web dashboard crashed: {e}", "WEB", e)
     

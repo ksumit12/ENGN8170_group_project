@@ -111,7 +111,19 @@ chmod +x scripts/setup_rpi.sh
 ./scripts/setup_rpi.sh
 ```
 
-### Step 3: Activate Environment and Start System
+### Step 3: Enable Security (HTTPS + Encryption) - OPTIONAL
+```bash
+# Enable HTTPS and database encryption (recommended)
+./enable_security.sh
+```
+
+This enables:
+- ✅ HTTPS for secure web dashboard access
+- ✅ Database encryption for data protection
+
+See [SECURITY.md](SECURITY.md) for details.
+
+### Step 4: Activate Environment and Start System
 ```bash
 # Activate virtual environment (REQUIRED before any commands)
 source .venv/bin/activate

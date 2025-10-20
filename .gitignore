@@ -40,6 +40,13 @@ ngrok.yml
 .env
 *.env
 
+# SSL certificates and keys (security)
+ssl/
+*.pem
+*.key
+*.crt
+*.csr
+
 # IDE
 .vscode/
 .idea/
