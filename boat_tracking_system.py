@@ -304,10 +304,11 @@ class BoatTrackingSystem:
                 except Exception as e:
                     logger.exception('create boat failed')
                     return jsonify({'error': str(e)}), 500
-            boats = self.db.get_all_boats()
-            result = []
-            
-            for boat in boats:
+            try:
+                boats = self.db.get_all_boats()
+                result = []
+                
+                for boat in boats:
                 beacon = self.db.get_beacon_by_boat(boat.id)
                 if not beacon:
                     # Skip boats with no assigned beacon to avoid clutter
@@ -370,20 +371,24 @@ class BoatTrackingSystem:
                     'beacon_state': beacon_state,
                     '_last_seen_ts': last_seen_ts
                 })
-            
-            # Sort so active boats (in_harbor) are first, then by most recently seen beacon
-            result.sort(key=lambda b: (
-                0 if b['status'] == 'in_harbor' else 1,
-                -b.get('_last_seen_ts', 0),
-                b['name'].lower()
-            ))
-            
-            # Remove helper field before returning
-            for b in result:
-                if '_last_seen_ts' in b:
-                    del b['_last_seen_ts']
-            
-            return jsonify(result)
+                
+                # Sort so active boats (in_harbor) are first, then by most recently seen beacon
+                result.sort(key=lambda b: (
+                    0 if b['status'] == 'in_harbor' else 1,
+                    -b.get('_last_seen_ts', 0),
+                    b['name'].lower()
+                ))
+                
+                # Remove helper field before returning
+                for b in result:
+                    if '_last_seen_ts' in b:
+                        del b['_last_seen_ts']
+                
+                return jsonify(result)
+            except Exception as e:
+                logger.exception('GET /api/boats failed')
+                # Fail soft to avoid breaking the whiteboard; caller shows a friendly message
+                return jsonify([])
 
         @self.web_app.route('/api/fsm-states')
         def api_fsm_states():
