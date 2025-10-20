@@ -1033,6 +1033,75 @@ class BoatTrackingSystem:
             except Exception as e:
                 logger.error(f"Failed to export weekly logs: {e}", "API", e)
                 return jsonify({'error': str(e)}), 500
+        
+        @self.web_app.route('/api/boats/export-water-time', methods=['POST'])
+        def export_boat_water_time():
+            """Export boat water time data with date range selection."""
+            try:
+                data = request.get_json() or {}
+                start_date = data.get('start_date')
+                end_date = data.get('end_date')
+                boat_id = data.get('boat_id')  # Optional: specific boat
+                
+                if not start_date or not end_date:
+                    return jsonify({'error': 'start_date and end_date are required'}), 400
+                
+                # Parse dates
+                try:
+                    start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                    end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                except ValueError:
+                    return jsonify({'error': 'Invalid date format. Use ISO format.'}), 400
+                
+                # Generate filename
+                if boat_id:
+                    filename = f"boat_water_time_{boat_id}_{start_dt.strftime('%Y%m%d')}_to_{end_dt.strftime('%Y%m%d')}.csv"
+                else:
+                    filename = f"all_boats_water_time_{start_dt.strftime('%Y%m%d')}_to_{end_dt.strftime('%Y%m%d')}.csv"
+                
+                # Get boat water time data
+                water_time_data = self._export_boat_water_time_data(start_dt, end_dt, boat_id)
+                
+                # Create CSV response
+                import io
+                import csv
+                from flask import Response
+                
+                output = io.StringIO()
+                writer = csv.writer(output)
+                
+                # Write header
+                writer.writerow([
+                    'boat_id', 'boat_name', 'boat_class', 'trip_date', 
+                    'exit_time', 'entry_time', 'duration_minutes', 
+                    'duration_hours', 'trip_id'
+                ])
+                
+                # Write water time data
+                for entry in water_time_data:
+                    writer.writerow([
+                        entry.get('boat_id', ''),
+                        entry.get('boat_name', ''),
+                        entry.get('boat_class', ''),
+                        entry.get('trip_date', ''),
+                        entry.get('exit_time', ''),
+                        entry.get('entry_time', ''),
+                        entry.get('duration_minutes', ''),
+                        entry.get('duration_hours', ''),
+                        entry.get('trip_id', '')
+                    ])
+                
+                output.seek(0)
+                
+                return Response(
+                    output.getvalue(),
+                    mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename={filename}'}
+                )
+                
+            except Exception as e:
+                logger.error(f"Failed to export boat water time: {e}", "API", e)
+                return jsonify({'error': str(e)}), 500
     
     def start_api_server(self):
         """Start the API server."""
@@ -1179,6 +1248,77 @@ class BoatTrackingSystem:
             
         except Exception as e:
             logger.error(f"Failed to export logs by date range: {e}", "EXPORT", e)
+            return []
+    
+    def _export_boat_water_time_data(self, start_date, end_date, boat_id=None):
+        """Export boat water time data within a date range."""
+        try:
+            water_time_data = []
+            
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Build query based on whether we want specific boat or all boats
+                if boat_id:
+                    query = """
+                        SELECT 
+                            bt.boat_id,
+                            b.name as boat_name,
+                            b.class_type as boat_class,
+                            bt.trip_date,
+                            bt.exit_time,
+                            bt.entry_time,
+                            bt.duration_minutes,
+                            bt.id as trip_id
+                        FROM boat_trips bt
+                        JOIN boats b ON bt.boat_id = b.id
+                        WHERE bt.trip_date >= ? AND bt.trip_date <= ? 
+                        AND bt.boat_id = ?
+                        AND bt.duration_minutes IS NOT NULL
+                        ORDER BY bt.trip_date DESC, bt.exit_time DESC
+                    """
+                    params = (start_date.date(), end_date.date(), boat_id)
+                else:
+                    query = """
+                        SELECT 
+                            bt.boat_id,
+                            b.name as boat_name,
+                            b.class_type as boat_class,
+                            bt.trip_date,
+                            bt.exit_time,
+                            bt.entry_time,
+                            bt.duration_minutes,
+                            bt.id as trip_id
+                        FROM boat_trips bt
+                        JOIN boats b ON bt.boat_id = b.id
+                        WHERE bt.trip_date >= ? AND bt.trip_date <= ? 
+                        AND bt.duration_minutes IS NOT NULL
+                        ORDER BY bt.trip_date DESC, bt.exit_time DESC
+                    """
+                    params = (start_date.date(), end_date.date())
+                
+                cursor.execute(query, params)
+                
+                for row in cursor.fetchall():
+                    duration_minutes = row[6] if row[6] else 0
+                    duration_hours = round(duration_minutes / 60.0, 2) if duration_minutes else 0
+                    
+                    water_time_data.append({
+                        'boat_id': row[0],
+                        'boat_name': row[1],
+                        'boat_class': row[2],
+                        'trip_date': row[3],
+                        'exit_time': row[4],
+                        'entry_time': row[5],
+                        'duration_minutes': duration_minutes,
+                        'duration_hours': duration_hours,
+                        'trip_id': row[7]
+                    })
+            
+            return water_time_data
+            
+        except Exception as e:
+            logger.error(f"Failed to export boat water time data: {e}", "EXPORT", e)
             return []
     
     def start(self):
@@ -2347,6 +2487,7 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
         CRED={user,pass};
         document.getElementById('actions').style.display='block';
         loadClosing();
+        loadBoats();
       }catch(e){ alert('Network error: '+e); }
     }
     async function loadClosing(){
@@ -2369,6 +2510,55 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
       const t=await r.text();
       if(r.ok){ alert('System reset complete'); } else { alert('Error: '+t); }
     }
+    async function exportWaterTime(){
+      const startDate = document.getElementById('waterStartDate').value;
+      const endDate = document.getElementById('waterEndDate').value;
+      const boatId = document.getElementById('waterBoatId').value.trim();
+      
+      if(!startDate || !endDate){ alert('Please select start and end dates'); return; }
+      
+      try{
+        const payload = {
+          start_date: startDate,
+          end_date: endDate
+        };
+        if(boatId) payload.boat_id = boatId;
+        
+        const r = await fetch('/api/boats/export-water-time', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        
+        if(r.ok){
+          const blob = await r.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `boat_water_time_${startDate}_to_${endDate}.csv`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+          alert('Water time data exported successfully!');
+        } else {
+          alert('Export failed: ' + (await r.text()));
+        }
+      }catch(e){ alert('Export failed: '+e); }
+    }
+    async function loadBoats(){
+      try{
+        const boats = await fetch('/api/boats').then(r=>r.json());
+        const select = document.getElementById('waterBoatId');
+        select.innerHTML = '<option value="">All Boats</option>';
+        boats.forEach(boat => {
+          const option = document.createElement('option');
+          option.value = boat.id;
+          option.textContent = `${boat.name} (${boat.class_type})`;
+          select.appendChild(option);
+        });
+      }catch(e){ console.log('Failed to load boats:', e); }
+    }
   </script>
 </head>
 <body>
@@ -2384,6 +2574,27 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
     <div style=\"margin:8px 0; display:flex; gap:8px; align-items:center;\">
       <label for=\"closing\" style=\"min-width:120px;\">Overdue after:</label>
       <input id=\"closing\" placeholder=\"HH:MM\" style=\"flex:0 0 120px\"> <button class=\"primary\" onclick=\"saveClosing()\">Save</button>
+    </div>
+    <div style=\"margin:8px 0; padding:12px; background:#f8f9fa; border-radius:6px;\">
+      <h3 style=\"margin:0 0 8px 0; color:#2c3e50;\">Export Boat Water Time Data</h3>
+      <div style=\"display:flex; gap:8px; align-items:center; margin:4px 0;\">
+        <label style=\"min-width:80px;\">Start Date:</label>
+        <input type=\"date\" id=\"waterStartDate\" style=\"flex:1;\">
+      </div>
+      <div style=\"display:flex; gap:8px; align-items:center; margin:4px 0;\">
+        <label style=\"min-width:80px;\">End Date:</label>
+        <input type=\"date\" id=\"waterEndDate\" style=\"flex:1;\">
+      </div>
+      <div style=\"display:flex; gap:8px; align-items:center; margin:4px 0;\">
+        <label style=\"min-width:80px;\">Boat:</label>
+        <select id=\"waterBoatId\" style=\"flex:1; padding:8px; border:1px solid #ccc; border-radius:6px;\">
+          <option value=\"\">Loading boats...</option>
+        </select>
+      </div>
+      <div style=\"margin:8px 0;\">
+        <button class=\"primary\" onclick=\"exportWaterTime()\">Export Water Time CSV</button>
+      </div>
+      <p class=\"muted\" style=\"margin:4px 0 0 0;\">Exports detailed trip data including exit/entry times and duration for analysis.</p>
     </div>
     <div style=\"display:flex; gap:10px; align-items:center; margin:8px 0\">
       <a href=\"/reports\" style=\"background:#007bff;color:#fff;text-decoration:none;padding:10px 16px;border-radius:6px\">Reports</a>
