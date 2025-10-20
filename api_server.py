@@ -134,6 +134,26 @@ class APIServer:
                             self.db.update_boat_status(assigned_boat.id, BoatStatus.IN_HARBOR)
                         except Exception:
                             pass
+                        # Also, if this is the first detection after an OUT (gap > window), stamp ENTRY now
+                        try:
+                            now_dt = datetime.now(timezone.utc)
+                            try:
+                                window_seconds = int(os.getenv('PRESENCE_ACTIVE_WINDOW_S', '8'))
+                            except Exception:
+                                window_seconds = 8
+                            prev_last_seen = beacon.last_seen if not isinstance(beacon.last_seen, str) else datetime.fromisoformat(beacon.last_seen)
+                            gap_ok = not prev_last_seen or (now_dt - prev_last_seen).total_seconds() > window_seconds
+                            # Refresh boat status from DB after we marked IN_HARBOR
+                            boat_after = self.db.get_boat(assigned_boat.id)
+                            if boat_after and getattr(boat_after, 'status', None) == BoatStatus.IN_HARBOR and gap_ok:
+                                # If previously OUT (or never seen), record entry and end any open trip
+                                self.db.update_beacon_state(beacon.id, DetectionState.ENTERED, entry_timestamp=now_dt)
+                                try:
+                                    self.db.end_trip(assigned_boat.id, beacon.id, now_dt)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
                         processed_count += 1
                         continue
 
