@@ -132,7 +132,7 @@ class APIServer:
                             # Log IN_SHED event ONLY if transitioning from OUT → IN
                             if was_out:
                                 event_id = self.db.log_shed_event(assigned_boat.id, beacon.id, 'IN_SHED', now_dt)
-                                logger.info(f"✅ IN_SHED: {assigned_boat.name} (event {event_id})", "EVENT")
+                                logger.info(f"IN_SHED: {assigned_boat.name} (event {event_id})", "EVENT")
                                 
                                 # Also update beacon state for compatibility
                                 self.db.update_beacon_state(beacon.id, DetectionState.ENTERED, entry_timestamp=now_dt)
@@ -543,7 +543,7 @@ class APIServer:
                         # Mark OUT and log OUT_SHED event
                         now_ts = datetime.now(timezone.utc)
                         event_id = self.db.log_shed_event(boat.id, beacon.id, 'OUT_SHED', now_ts)
-                        logger.info(f"🚤 OUT_SHED: {boat.name} (event {event_id})", "EVENT")
+                        logger.info(f"OUT_SHED: {boat.name} (event {event_id})", "EVENT")
                         
                         # Update status and compatibility fields
                         self.db.update_beacon_state(beacon.id, DetectionState.EXITED, exit_timestamp=now_ts)
