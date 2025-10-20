@@ -1202,6 +1202,7 @@ class DatabaseManager:
         status = 'IN_SHED' if present_now else 'ON_WATER'
         
         # ---- on_water_ts_local (first OUT today, or yesterday carry-over) ----
+        # ALWAYS show first OUT today if it exists (regardless of current status)
         out_today = next((e for e in ev_today if e['event_type'] == 'OUT_SHED'), None)
         
         if out_today:

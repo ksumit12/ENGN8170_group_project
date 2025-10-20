@@ -553,6 +553,26 @@ class BoatTrackingSystem:
             results.sort(key=lambda x: (x['last_rssi'] is not None, x['last_rssi']), reverse=True)
             return jsonify(results)
         
+        @self.web_app.route('/api/events/<boat_id>')
+        def api_events(boat_id):
+            """Get today's events for a boat (for debugging)."""
+            try:
+                events = self.db.get_events_for_boat(boat_id)
+                summary = self.db.summarize_today(boat_id)
+                return jsonify({
+                    'events': [{
+                        'type': e['event_type'],
+                        'time': e['ts_local'].isoformat() if e['ts_local'] else None
+                    } for e in events],
+                    'summary': {
+                        'status': summary['status'],
+                        'on_water_ts': summary['on_water_ts_local'].isoformat() if summary['on_water_ts_local'] else None,
+                        'in_shed_ts': summary['in_shed_ts_local'].isoformat() if summary['in_shed_ts_local'] else None
+                    }
+                })
+            except Exception as e:
+                return jsonify({'error': str(e)}), 500
+        
         @self.web_app.route('/api/presence')
         def api_presence():
             """Get current presence status.
