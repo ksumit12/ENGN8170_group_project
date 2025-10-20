@@ -278,6 +278,24 @@ class DatabaseManager:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_trips_date ON boat_trips (trip_date)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_trips_boat_date ON boat_trips (boat_id, trip_date)")
             
+            # Shed events table (append-only event log)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS shed_events (
+                    id TEXT PRIMARY KEY,
+                    boat_id TEXT NOT NULL,
+                    beacon_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL CHECK(event_type IN ('IN_SHED', 'OUT_SHED')),
+                    ts_utc TIMESTAMP NOT NULL,
+                    created_at TIMESTAMP NOT NULL,
+                    FOREIGN KEY (boat_id) REFERENCES boats (id),
+                    FOREIGN KEY (beacon_id) REFERENCES beacons (id)
+                )
+            """)
+            
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_boat ON shed_events (boat_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_ts ON shed_events (ts_utc)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_boat_ts ON shed_events (boat_id, ts_utc)")
+            
             # Audit log for administrative actions
             cursor.execute(
                 """
@@ -1044,3 +1062,170 @@ class DatabaseManager:
                     UPDATE beacons SET notes = ?, updated_at = ? WHERE id = ?
                 """, (notes, now, beacon_id))
             conn.commit()
+    
+    # ========== EVENT-BASED TIMESTAMP SYSTEM ==========
+    
+    def log_shed_event(self, boat_id: str, beacon_id: str, event_type: str, ts_utc: datetime = None) -> str:
+        """
+        Log a shed event (IN_SHED or OUT_SHED) to append-only events table.
+        
+        Args:
+            boat_id: Boat ID
+            beacon_id: Beacon ID  
+            event_type: 'IN_SHED' or 'OUT_SHED'
+            ts_utc: Event timestamp in UTC (defaults to now)
+            
+        Returns:
+            Event ID
+        """
+        if ts_utc is None:
+            ts_utc = datetime.now(timezone.utc)
+        
+        event_id = f"EV{int(ts_utc.timestamp() * 1000)}"
+        created_at = datetime.now(timezone.utc)
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO shed_events (id, boat_id, beacon_id, event_type, ts_utc, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (event_id, boat_id, beacon_id, event_type, ts_utc, created_at))
+            conn.commit()
+        
+        return event_id
+    
+    def get_events_for_boat(self, boat_id: str, date_local: datetime.date = None, timezone_str: str = 'Australia/Canberra') -> List[dict]:
+        """
+        Get events for a boat on a specific local date.
+        
+        Args:
+            boat_id: Boat ID
+            date_local: Local date (defaults to today in club timezone)
+            timezone_str: Club timezone
+            
+        Returns:
+            List of events: [{'id', 'event_type', 'ts_utc', 'ts_local'}, ...]
+        """
+        try:
+            from zoneinfo import ZoneInfo
+            club_tz = ZoneInfo(timezone_str)
+        except:
+            club_tz = timezone.utc
+        
+        if date_local is None:
+            date_local = datetime.now(club_tz).date()
+        
+        # Get start and end of day in UTC
+        start_local = datetime.combine(date_local, datetime.min.time()).replace(tzinfo=club_tz)
+        end_local = datetime.combine(date_local, datetime.max.time()).replace(tzinfo=club_tz)
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, event_type, ts_utc
+                FROM shed_events
+                WHERE boat_id = ? AND ts_utc >= ? AND ts_utc <= ?
+                ORDER BY ts_utc ASC
+            """, (boat_id, start_utc, end_utc))
+            
+            rows = cursor.fetchall()
+            events = []
+            for row in rows:
+                ts_utc_val = datetime.fromisoformat(row[2]) if isinstance(row[2], str) else row[2]
+                if ts_utc_val.tzinfo is None:
+                    ts_utc_val = ts_utc_val.replace(tzinfo=timezone.utc)
+                
+                ts_local = ts_utc_val.astimezone(club_tz)
+                
+                events.append({
+                    'id': row[0],
+                    'event_type': row[1],
+                    'ts_utc': ts_utc_val,
+                    'ts_local': ts_local
+                })
+            
+            return events
+    
+    def summarize_today(self, boat_id: str, timezone_str: str = 'Australia/Canberra') -> dict:
+        """
+        Compute daily summary for a boat based on events + current beacon presence.
+        
+        This implements the deterministic algorithm:
+        - status: Current presence overrides stale DB status
+        - on_water_ts_local: First OUT today (or yesterday carry-over if still out)
+        - in_shed_ts_local: Latest IN today
+        
+        Args:
+            boat_id: Boat ID
+            timezone_str: Club timezone
+            
+        Returns:
+            {
+                'status': 'IN_SHED' or 'ON_WATER',
+                'last_seen_utc': datetime or None,
+                'on_water_ts_local': datetime or None,
+                'in_shed_ts_local': datetime or None,
+                'day_key': date
+            }
+        """
+        try:
+            from zoneinfo import ZoneInfo
+            club_tz = ZoneInfo(timezone_str)
+        except:
+            club_tz = timezone.utc
+        
+        now_local = datetime.now(club_tz)
+        today = now_local.date()
+        yesterday = today - timedelta(days=1)
+        
+        # Get events for today and yesterday
+        ev_today = self.get_events_for_boat(boat_id, today, timezone_str)
+        ev_yest = self.get_events_for_boat(boat_id, yesterday, timezone_str)
+        
+        # Get current beacon presence
+        beacon = self.get_beacon_by_boat(boat_id)
+        last_seen_utc = None
+        present_now = False
+        
+        if beacon and beacon.last_seen:
+            last_seen_utc = beacon.last_seen if isinstance(beacon.last_seen, datetime) else datetime.fromisoformat(beacon.last_seen)
+            if last_seen_utc.tzinfo is None:
+                last_seen_utc = last_seen_utc.replace(tzinfo=timezone.utc)
+            
+            # Beacon is "present" if seen within last 15 seconds
+            age_seconds = (datetime.now(timezone.utc) - last_seen_utc).total_seconds()
+            present_now = age_seconds <= 15
+        
+        # Baseline status: presence wins over stale DB status
+        status = 'IN_SHED' if present_now else 'ON_WATER'
+        
+        # ---- on_water_ts_local (first OUT today, or yesterday carry-over) ----
+        out_today = next((e for e in ev_today if e['event_type'] == 'OUT_SHED'), None)
+        
+        if out_today:
+            on_water_ts_local = out_today['ts_local']
+        else:
+            # Carry over only if: currently ON_WATER and no IN today
+            any_in_today = any(e['event_type'] == 'IN_SHED' for e in ev_today)
+            any_out_yest = any(e['event_type'] == 'OUT_SHED' for e in ev_yest)
+            
+            if status == 'ON_WATER' and not any_in_today and any_out_yest:
+                # Use yesterday's last OUT
+                last_out_yest = next((e for e in reversed(ev_yest) if e['event_type'] == 'OUT_SHED'), None)
+                on_water_ts_local = last_out_yest['ts_local'] if last_out_yest else None
+            else:
+                on_water_ts_local = None
+        
+        # ---- in_shed_ts_local (latest IN today) ----
+        ins_today = next((e for e in reversed(ev_today) if e['event_type'] == 'IN_SHED'), None)
+        in_shed_ts_local = ins_today['ts_local'] if ins_today else None
+        
+        return {
+            'status': status,
+            'last_seen_utc': last_seen_utc,
+            'on_water_ts_local': on_water_ts_local,
+            'in_shed_ts_local': in_shed_ts_local,
+            'day_key': today
+        }
