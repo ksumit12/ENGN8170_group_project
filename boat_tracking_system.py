@@ -3856,14 +3856,14 @@ def get_default_config():
                 'api_key': 'default-key',
                 'rssi_threshold': -60,  # Left scanner - detects when beacon is within ~1m
                 'scan_interval': 1.0,
-                'adapter': 'hci0'  # TP-Link BLE Scanner #1 (Left side)
+                'adapter': 'hci1'  # Using hci1 - hci0 has locking issues
             },
             {
                 'id': 'gate-inner',
                 'api_key': 'default-key',
                 'rssi_threshold': -55,  # Right scanner - detects when beacon is within ~0.5m
                 'scan_interval': 1.0,
-                'adapter': 'hci1'  # TP-Link BLE Scanner #2 (Right side)
+                'adapter': 'hci0'  # TP-Link BLE Scanner #2 (Right side)
             }
         ]
     }
