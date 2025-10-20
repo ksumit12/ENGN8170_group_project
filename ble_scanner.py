@@ -345,12 +345,12 @@ class BLEScanner:
         logger.info(f"Server URL: {self.config.server_url}", "SCANNER")
         logger.info(f"RSSI threshold: {self.config.rssi_threshold} dBm", "SCANNER")
 
-        # Use PASSIVE scanning to avoid adapter lock issues
+        # Use active scanning for iBeacon detection
         # Use specified adapter if provided
-        scanner_kwargs = {"scanning_mode": "passive"}
+        scanner_kwargs = {"scanning_mode": "active"}
         if self.config.adapter:
             scanner_kwargs["adapter"] = self.config.adapter
-            logger.info(f"Using BLE adapter: {self.config.adapter} (passive mode)", "SCANNER")
+            logger.info(f"Using BLE adapter: {self.config.adapter}", "SCANNER")
         
         scanner = BleakScanner(self.detection_callback, **scanner_kwargs)
 

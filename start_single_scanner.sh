@@ -10,10 +10,23 @@ sudo pkill -9 -f "python3.*boat_tracking" 2>/dev/null || true
 sudo fuser -k 5000/tcp 2>/dev/null || true
 sudo fuser -k 8000/tcp 2>/dev/null || true
 
+# Force stop any BLE scans
+echo "Stopping any active BLE scans..."
+sudo timeout 2 bluetoothctl scan off 2>/dev/null || true
+
 # Restart Bluetooth to clear any BLE adapter locks
 echo "Restarting Bluetooth service..."
 sudo systemctl restart bluetooth
 sleep 3
+
+# Reset adapters
+echo "Resetting BLE adapters..."
+sudo hciconfig hci0 down 2>/dev/null || true
+sudo hciconfig hci1 down 2>/dev/null || true
+sleep 1
+sudo hciconfig hci0 up 2>/dev/null || true
+sudo hciconfig hci1 up 2>/dev/null || true
+sleep 2
 
 echo " Starting simple single-scanner mode..."
 
