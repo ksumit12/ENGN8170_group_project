@@ -1142,6 +1142,117 @@ class BoatTrackingSystem:
                 logger.error(f"Failed to export weekly logs: {e}", "API", e)
                 return jsonify({'error': str(e)}), 500
         
+        @self.web_app.route('/api/boats/export-sessions', methods=['POST'])
+        def export_boat_sessions():
+            """Export all boat sessions from events (each trip as separate row)."""
+            try:
+                import io, csv
+                from flask import Response
+                
+                data = request.get_json() or {}
+                boat_id = data.get('boat_id')  # Optional filter
+                days = int(data.get('days', 7))  # Last N days
+                
+                # Get date range
+                try:
+                    from zoneinfo import ZoneInfo
+                    tz = ZoneInfo('Australia/Canberra')
+                except:
+                    tz = timezone.utc
+                
+                end_date = datetime.now(tz).date()
+                start_date = end_date - timedelta(days=days)
+                
+                # Collect all sessions from events
+                sessions = []
+                boats = [self.db.get_boat(boat_id)] if boat_id else self.db.get_all_boats()
+                
+                for boat in boats:
+                    if not boat:
+                        continue
+                    
+                    # Get events for each day in range
+                    current_date = start_date
+                    while current_date <= end_date:
+                        events = self.db.get_events_for_boat(boat.id, current_date)
+                        
+                        # Pair OUT/IN events as sessions
+                        i = 0
+                        while i < len(events):
+                            if events[i]['event_type'] == 'OUT_SHED':
+                                out_event = events[i]
+                                in_event = None
+                                
+                                # Find matching IN event
+                                if i + 1 < len(events) and events[i + 1]['event_type'] == 'IN_SHED':
+                                    in_event = events[i + 1]
+                                    i += 2
+                                else:
+                                    i += 1
+                                
+                                # Calculate duration
+                                if in_event:
+                                    duration_sec = (in_event['ts_utc'] - out_event['ts_utc']).total_seconds()
+                                    duration_min = int(duration_sec / 60)
+                                    duration_hr = round(duration_sec / 3600, 2)
+                                    status = 'Completed'
+                                else:
+                                    duration_min = None
+                                    duration_hr = None
+                                    status = 'Still Out'
+                                
+                                sessions.append({
+                                    'boat_id': boat.id,
+                                    'boat_name': boat.name,
+                                    'boat_class': boat.class_type,
+                                    'date': current_date.isoformat(),
+                                    'left_shed': out_event['ts_local'].strftime('%Y-%m-%d %H:%M:%S'),
+                                    'returned_shed': in_event['ts_local'].strftime('%Y-%m-%d %H:%M:%S') if in_event else '—',
+                                    'duration_minutes': duration_min or '—',
+                                    'duration_hours': duration_hr or '—',
+                                    'status': status
+                                })
+                            else:
+                                i += 1
+                        
+                        current_date += timedelta(days=1)
+                
+                # Create CSV
+                output = io.StringIO()
+                writer = csv.writer(output)
+                
+                writer.writerow([
+                    'Boat ID', 'Boat Name', 'Class', 'Date', 
+                    'Left Shed (Time Out)', 'Returned Shed (Time In)', 
+                    'Duration (Minutes)', 'Duration (Hours)', 'Status'
+                ])
+                
+                for session in sessions:
+                    writer.writerow([
+                        session['boat_id'],
+                        session['boat_name'],
+                        session['boat_class'],
+                        session['date'],
+                        session['left_shed'],
+                        session['returned_shed'],
+                        session['duration_minutes'],
+                        session['duration_hours'],
+                        session['status']
+                    ])
+                
+                output.seek(0)
+                filename = f"boat_sessions_{start_date.isoformat()}_to_{end_date.isoformat()}.csv"
+                
+                return Response(
+                    output.getvalue(),
+                    mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename={filename}'}
+                )
+                
+            except Exception as e:
+                logger.error(f"Failed to export sessions: {e}", "API")
+                return jsonify({'error': str(e)}), 500
+        
         @self.web_app.route('/api/boats/export-water-time', methods=['POST'])
         def export_boat_water_time():
             """Export boat water time data with date range selection."""
