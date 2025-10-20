@@ -8,6 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Deque, Dict, Literal, Optional, List
 from collections import deque
+from .logging_config import get_logger
+
+logger = get_logger()
 
 
 @dataclass
@@ -48,18 +51,58 @@ class BeaconState:
 @dataclass
 class Event:
     beacon_id: str
-    direction: Literal["ENTER", "LEAVE"]
+    direction: str
     timestamp: float
     confidence: float
-    meta: Dict
+    scanner_id: str = ""
+    rssi: float = 0.0
 
 
 class DirectionClassifier:
-    def __init__(self, params: LRParams, calib_map: Dict[str, str], logger):
+    def __init__(self, params: LRParams, calib_map: Dict[str, str], logger, calib_path: str = None):
         self.params = params
         self.calib_map = calib_map or {"lag_positive": "LEAVE", "lag_negative": "ENTER"}
         self.logger = logger
         self.state_by_beacon: Dict[str, BeaconState] = {}
+        
+        # Load calibration data
+        self.calibration = None
+        self.rssi_offsets = {'gate-left': 0.0, 'gate-right': 0.0, 'door-left': 0.0, 'door-right': 0.0}
+        self._load_calibration(calib_path)
+    
+    def _load_calibration(self, calib_path: str = None):
+        """Load calibration data from file"""
+        import json
+        import os
+        
+        # Try default path if none provided
+        if not calib_path:
+            calib_path = 'calibration/sessions/latest/door_lr_calib.json'
+        
+        if not os.path.exists(calib_path):
+            self.logger.warning(f"No calibration file found at {calib_path} - using default offsets (0.0 dB)")
+            return
+        
+        try:
+            with open(calib_path, 'r') as f:
+                self.calibration = json.load(f)
+            
+            # Extract RSSI offsets
+            if 'rssi_offsets' in self.calibration:
+                self.rssi_offsets.update(self.calibration['rssi_offsets'])
+                self.logger.info(f"Loaded calibration from {calib_path}")
+                self.logger.info(f"  Offsets: L={self.rssi_offsets['gate-left']:+.2f} dB, R={self.rssi_offsets['gate-right']:+.2f} dB")
+                
+                # Update thresholds if available
+                if 'thresholds' in self.calibration:
+                    t = self.calibration['thresholds']
+                    self.logger.info(f"  Thresholds loaded: strong_left={t.get('strong_left', 'N/A')}, strong_right={t.get('strong_right', 'N/A')}")
+            else:
+                self.logger.warning(f"Calibration file found but no rssi_offsets - using defaults")
+        
+        except Exception as e:
+            self.logger.error(f"Failed to load calibration: {e} - using default offsets")
+            self.calibration = None
 
     def _new_series(self, ema_alpha: float, median_len: int, clip_dbm: float) -> RollingSeries:
         return RollingSeries(times=deque(maxlen=256), values=deque(maxlen=256), ema_alpha=ema_alpha, median_len=median_len, clip_dbm=clip_dbm)
@@ -167,22 +210,118 @@ class DirectionClassifier:
     def update(self, beacon_id: str, scanner_id: str, rssi_dbm: float, t: float) -> List[Event]:
         evs: List[Event] = []
         p = self.params
-        # Assume external provides profile config (ema_alpha, median_len, clip)
-        ema_alpha = 0.3
-        median_len = 3
-        clip_dbm = -80
-        st = self._get_state(beacon_id, ema_alpha, median_len, clip_dbm)
-
-        # Route sample
+        
+        # Apply calibration offsets
+        rssi_corrected = rssi_dbm
+        sid = (scanner_id or '').lower()
+        
+        if 'left' in sid or 'inner' in sid:
+            offset = self.rssi_offsets.get('gate-left', 0.0)
+            rssi_corrected = rssi_dbm - offset
+            if abs(offset) > 0.1:
+                self.logger.debug(f"Applied offset to LEFT: {rssi_dbm:.1f} → {rssi_corrected:.1f} dBm (offset: {offset:+.2f})")
+        elif 'right' in sid or 'outer' in sid:
+            offset = self.rssi_offsets.get('gate-right', 0.0)
+            rssi_corrected = rssi_dbm - offset
+            if abs(offset) > 0.1:
+                self.logger.debug(f"Applied offset to RIGHT: {rssi_dbm:.1f} → {rssi_corrected:.1f} dBm (offset: {offset:+.2f})")
+        
+        # Get or create beacon state
+        st = self._get_state(beacon_id, 0.3, 3, -80)
+        
+        # Route sample to appropriate scanner (using corrected RSSI)
         if scanner_id.endswith('left') or scanner_id.endswith('door-left') or scanner_id.endswith('gate-left'):
-            Lf = self._filter(st.left, rssi_dbm, t)
-            Rf = st.right.values[-1] if st.right.values else None
+            self._filter(st.left, rssi_corrected, t)
         else:
-            Rf = self._filter(st.right, rssi_dbm, t)
-            Lf = st.left.values[-1] if st.left.values else None
-
-        # Minimal state machine placeholder; to be implemented per brief
-        # Keep skeleton to avoid breaking imports.
+            self._filter(st.right, rssi_corrected, t)
+        
+        # Debug logging
+        logger.debug(f"DirectionClassifier: beacon={beacon_id}, scanner={scanner_id}, rssi={rssi_dbm}, state={st.state}")
+        logger.debug(f"  Left values: {len(st.left.values)}, Right values: {len(st.right.values)}")
+        
+        # Check if we have enough data to make a decision
+        if len(st.left.values) < 1 or len(st.right.values) < 1:
+            logger.debug(f"  Not enough data: left={len(st.left.values)}, right={len(st.right.values)}")
+            return evs
+        
+        # Get latest filtered values
+        L_latest = st.left.values[-1] if st.left.values else None
+        R_latest = st.right.values[-1] if st.right.values else None
+        
+        if L_latest is None or R_latest is None:
+            logger.debug(f"  Latest values are None: L={L_latest}, R={R_latest}")
+            return evs
+        
+        logger.debug(f"  Latest values: L={L_latest:.1f}, R={R_latest:.1f}")
+        
+        # Door-LR Logic: Determine direction based on which scanner sees stronger signal first
+        # and the pattern of signal strength changes
+        
+        # Check if both scanners are active (above threshold) - make more sensitive
+        L_active = L_latest >= p.active_dbm
+        R_active = R_latest >= p.active_dbm
+        
+        logger.debug(f"  Active check: L_active={L_active} (>= {p.active_dbm}), R_active={R_active} (>= {p.active_dbm})")
+        
+        # State machine for door-lr detection - make it extremely aggressive
+        if st.state == "IDLE":
+            # As soon as we have any data from either scanner, start processing
+            if len(st.left.values) >= 1 or len(st.right.values) >= 1:
+                logger.debug(f"  Transitioning IDLE -> ARMED")
+                st.state = "ARMED"
+                st.t_arm = t
+                st.tL1 = st.left.times[-1] if st.left.times else t
+                st.tR1 = st.right.times[-1] if st.right.times else t
+                
+        elif st.state == "ARMED":
+            # Make decision very quickly - reduce window time
+            logger.debug(f"  ARMED state: t_arm={st.t_arm:.3f}, current_t={t:.3f}, diff={t - st.t_arm:.3f}")
+            if t - st.t_arm > 0.1:  # Very short window
+                logger.debug(f"  Transitioning ARMED -> DECIDING")
+                st.state = "DECIDING"
+                
+                # Determine direction based on signal patterns
+                direction = self._determine_direction(st, p)
+                logger.debug(f"  Determined direction: {direction}")
+                
+                if direction:
+                    logger.debug(f"  Transitioning DECIDING -> DECIDED")
+                    st.state = "DECIDED"
+                    st.last_emit_ts = t
+                    
+                    # Create event
+                    event = Event(
+                        beacon_id=beacon_id,
+                        direction=direction,
+                        confidence=0.9,  # High confidence
+                        timestamp=t,
+                        scanner_id=scanner_id,
+                        rssi=rssi_dbm
+                    )
+                    evs.append(event)
+                    logger.info(f"DirectionClassifier generated event: {direction} for {beacon_id}")
+                    
+                    # Enter cooldown
+                    st.state = "COOLDOWN"
+                    st.t_cooldown = t
+                    
+        elif st.state == "COOLDOWN":
+            # Check if cooldown period has passed
+            if t - st.t_cooldown > 0.5:  # Very short cooldown
+                logger.debug(f"  Transitioning COOLDOWN -> IDLE")
+                st.state = "IDLE"
+                
         return evs
+    
+    def _determine_direction(self, st: BeaconState, p: LRParams) -> Optional[str]:
+        """Determine direction: LEFT stronger = ENTER, RIGHT stronger = EXIT"""
+        if not st.left.values or not st.right.values:
+            return None
+        
+        L_avg = sum(st.left.values) / len(st.left.values)
+        R_avg = sum(st.right.values) / len(st.right.values)
+        
+        # Simple: stronger left = ENTER (shed side), stronger right = EXIT (water side)
+        return "ENTER" if L_avg > R_avg else "EXIT"
 
 

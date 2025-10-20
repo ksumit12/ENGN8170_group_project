@@ -1,0 +1,2 @@
+Trial,Expected,Observed,LatencySeconds,DashboardOrLog,Time,PassFail,Comments
+1,Update ≤5s,NoUpdate,timeout,simulator,07:49:37,Fail,

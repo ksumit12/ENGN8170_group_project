@@ -462,6 +462,37 @@ This branch focuses on left/right door calibration, scanner mapping, and improvi
   - Dashboard is served on `http://<pi-ip>:5000`. If unreachable, confirm the Pi IP and that the process is running (see Troubleshooting section).
   - BLE watchdog helps keep adapters stable during long runs.
 
+## Branch: `demo/single-scanner-fallback` (Demo‑optimized Single Scanner)
+
+Purpose: deliver a reliable demo using a single scanner. IN_SHED is asserted on any detection, and ON_WATER is inferred when the beacon hasn’t been seen for a short window.
+
+- Key changes in this branch:
+  - Added `app/single_scanner_engine.py` and auto-selected it when `SINGLE_SCANNER=1`.
+  - `api_server.py`: bypasses direction FSM in single‑scanner mode; immediate IN_HARBOR on detection, OUT via recency.
+  - `scanner_service.py`: starts only one scanner, honors `SCANNER_ID` env.
+  - `sim_run_simulator.py`: emits detections from a single scanner when enabled.
+  - `app/database_models.py`: pruned door‑LR specific states; kept minimal states `IDLE`, `INSIDE/ENTERED`, `OUTSIDE/EXITED`.
+
+- Environment variables:
+  - `SINGLE_SCANNER=1` to enable this mode.
+  - `SCANNER_ID=gate-inner` to select which scanner id to use.
+  - `PRESENCE_ACTIVE_WINDOW_S=5` seconds of silence before showing On Water.
+
+- How to run (Pi):
+```bash
+cd ~/grp_project
+git fetch && git checkout demo/single-scanner-fallback && git pull
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+export SINGLE_SCANNER=1
+export SCANNER_ID=gate-inner
+export PRESENCE_ACTIVE_WINDOW_S=5
+
+python3 boat_tracking_system.py --api-port 8000 --web-port 5000 --display-mode web --db-path data/boat_tracking.db
+```
+
+
 ## Calibration (Door L/R)
 
 Use this guided calibration to adapt thresholds and direction mapping to the current doorway geometry and scanner spacing.

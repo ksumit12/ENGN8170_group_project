@@ -1,0 +1,55 @@
+Digital Boat Tracking Board – Result Sheet R1
+Result Sheet – Location Detection
+Test ID: T1
+Requirement: R1
+Requirement Statement: The system shall automatically detect the location of each boat and classify it as either 'In Shed' or 'On Water'.
+Date: 17/10/2025
+Tester: Automated Test System
+Observer: System Monitor
+Environment: Controlled Test Environment
+System Version / Config: v1.0 - Door-LR Logic
+
+Results Table
+Trial No.,Expected Result,Observed Result,Dashboard / Log Status,Time (hh:mm:ss),Pass/Fail,Comments / Defects
+1,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+2,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+3,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+4,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+5,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+6,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+7,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+8,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+9,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+10,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+11,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+12,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+13,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+14,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+15,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+16,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+17,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+18,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+19,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+20,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+21,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+22,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+23,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+24,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+25,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+26,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+27,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+28,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+29,On Water,On Water,Dashboard: Boat RC-001 correctly detected on water,14:41:51,Pass,
+30,In Shed,In Shed,Dashboard: Boat RC-001 correctly detected in shed,14:41:51,Pass,
+
+Summary
+Total Trials: 30
+Passes: 30
+Fails: 0
+Accuracy (%): 1.0%
+
+Acceptance Criteria: ≥95% correct classifications across all crossings
+Result: Pass
+Issues Noted: No significant issues detected
+
+"Attachments: Screenshots, Logs, CSV Exports"

@@ -25,13 +25,9 @@ class DetectionState(Enum):
     IDLE = "idle"
     INSIDE = "entered"        # canonical name, value for DB compat
     OUTSIDE = "exited"        # canonical name, value for DB compat
-    OUT_PENDING = "going_out"
-    IN_PENDING = "going_in"
-    # Backward-compatible aliases
+    # Backward-compatible aliases (kept minimal)
     ENTERED = "entered"
     EXITED = "exited"
-    GOING_OUT = "going_out"
-    GOING_IN = "going_in"
 
 @dataclass
 class Boat:

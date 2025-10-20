@@ -20,7 +20,10 @@ ngrok config add-authtoken YOUR_TOKEN_HERE
 chmod +x setup_rpi.sh
 ./setup_rpi.sh
 
-# 5. Start the system
+# 5. Start the system (single-scanner demo mode)
+export SINGLE_SCANNER=1
+export SCANNER_ID=gate-inner
+export PRESENCE_ACTIVE_WINDOW_S=5
 ./start_system.sh
 ```
 

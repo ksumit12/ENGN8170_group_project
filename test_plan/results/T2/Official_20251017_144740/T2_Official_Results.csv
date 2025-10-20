@@ -1,0 +1,45 @@
+Digital Boat Tracking Board – Result Sheet R2
+Result Sheet – Real Time Update
+Test ID: T2
+Requirement: R2
+"Requirement Statement: The system shall provide the real-time operational status of each boat, with updates visible to users within 5 seconds of a change in state."
+Date: 17/10/2025
+Tester: Automated Test System
+Observer: System Monitor
+Environment: Controlled Test Environment
+System Version / Config: v1.0 - Door-LR Logic
+
+Results Table
+Trial No.,Expected Result,Observed Result,Dashboard / Log Status,Time (hh:mm:ss),Pass/Fail,Comments / Defects
+1,On Water,On Water,Dashboard: Boat RC-001 state updated within 1.7s - Excellent response time,14:47:40,Pass,
+2,In Shed,In Shed,Dashboard: Boat RC-001 state updated within 1.5s - Excellent response time,14:47:40,Pass,
+3,On Water,On Water,Dashboard: Boat RC-001 state updated within 2.4s - Good response time,14:47:40,Pass,
+4,In Shed,In Shed,Dashboard: Boat RC-001 state updated within 2.1s - Good response time,14:47:40,Pass,
+5,On Water,On Water,Dashboard: Boat RC-001 state updated within 3.9s - Acceptable response time,14:47:40,Pass,
+6,In Shed,In Shed,Dashboard: Boat RC-001 state updated within 1.9s - Excellent response time,14:47:40,Pass,
+7,On Water,In Shed,Dashboard: Boat RC-001 state update delayed by 6.4s - Exceeds 5s SLA (within 7s max),14:47:40,Fail,Update latency 6.4s exceeds 5s SLA (within 7s max) in Network congestion simulation - congestion test
+8,In Shed,In Shed,Dashboard: Boat RC-001 state updated within 1.1s - Excellent response time,14:47:40,Pass,
+9,On Water,On Water,Dashboard: Boat RC-001 state updated within 5.4s - Acceptable response time,14:47:40,Pass,
+10,In Shed,In Shed,Dashboard: Boat RC-001 state updated within 1.7s - Excellent response time,14:47:40,Pass,
+11,On Water,On Water,Dashboard: Boat RC-001 state updated within 1.5s - Excellent response time,14:47:40,Pass,
+12,In Shed,In Shed,Dashboard: Boat RC-001 state updated within 2.4s - Good response time,14:47:40,Pass,
+13,On Water,On Water,Dashboard: Boat RC-001 state updated within 1.3s - Excellent response time,14:47:40,Pass,
+14,In Shed,In Shed,Dashboard: Boat RC-001 state updated within 1.7s - Excellent response time,14:47:40,Pass,
+15,On Water,On Water,Dashboard: Boat RC-001 state updated within 1.7s - Excellent response time,14:47:40,Pass,
+16,In Shed,In Shed,Dashboard: Boat RC-001 state updated within 1.6s - Excellent response time,14:47:40,Pass,
+17,On Water,On Water,Dashboard: Boat RC-001 state updated within 2.4s - Good response time,14:47:40,Pass,
+18,In Shed,In Shed,Dashboard: Boat RC-001 state updated within 1.5s - Excellent response time,14:47:40,Pass,
+19,On Water,On Water,Dashboard: Boat RC-001 state updated within 3.7s - Acceptable response time,14:47:40,Pass,
+20,In Shed,In Shed,Dashboard: Boat RC-001 state updated within 1.3s - Excellent response time,14:47:40,Pass,
+
+Summary
+Total Trials: 20
+Passes: 19
+Fails: 1
+Accuracy (%): 0.9%
+
+Acceptance Criteria: ≥95% correct classifications across all crossings
+Result: Pass
+Issues Noted: Update latency 6.4s exceeds 5s SLA (within 7s max) in Network congestion simulation - congestion test
+
+"Attachments: Screenshots, Logs, CSV Exports"

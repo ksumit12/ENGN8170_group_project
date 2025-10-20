@@ -89,9 +89,9 @@ def simulate_once(db: DatabaseManager, boat_id: str, beacon_mac: str,
                   out_reflect_delay_s=(10.0, 15.0),
                   server_url: str = "http://127.0.0.1:8000",
                   log=None):
-    """Simulate one full movement in the given direction ('exit' or 'enter').
+    """Simulate one full movement in the given direction ('exit' or 'enter') using door-lr logic.
 
-    path_time_s: approximate walk time between inner and outer zones (40–50m path)
+    path_time_s: approximate walk time between left and right zones (40–50m path)
     outside_duration_s: time to remain on water/outside before considering return
     """
     if log:
@@ -101,50 +101,60 @@ def simulate_once(db: DatabaseManager, boat_id: str, beacon_mac: str,
     
     print(f"{direction.upper()} {boat_id} ({beacon_mac})")
 
-    if direction == "exit":
-        # EXIT: Shed -> Inner -> Outer -> Water (with latency and lingering reflection)
-        print("  Movement: Shed -> Inner -> Outer -> Water")
-        if log:
-            log("movement_path", boat_id=boat_id, path="shed->inner->outer->water")
+    import os
+    single_scanner = os.getenv('SINGLE_SCANNER', '0') == '1'
+    single_sid = os.getenv('SCANNER_ID', 'gate-inner')
 
-        # Enter inner read zone: 2-3s to first detection
+    if direction == "exit":
+        # EXIT: Shed -> Left -> Right -> Water (door-lr logic)
+        print("  Movement: Shed -> Left -> Right -> Water")
+        if log:
+            log("movement_path", boat_id=boat_id, path="shed->left->right->water")
+
+        # Enter left read zone: 2-3s to first detection
         _sleep_jitter(*in_detect_delay_s)
 
-        # Linger at inner for realistic loading/turning: ~30–45s of fluctuating reads
-        inner_linger_end = time.time() + max(25.0, min(60.0, path_time_s * 0.5))
-        while time.time() < inner_linger_end:
-            for rssi in _rssi_series(-70, -52, 3):
-                send_detection_to_api("gate-inner", beacon_mac, rssi, server_url, log)
-                _sleep_jitter(0.6, 1.0)
+        # Start with strong left signal (boat in shed)
+        for rssi in _rssi_series(-50, -45, 3):
+            send_detection_to_api("gate-left", beacon_mac, rssi, server_url, log)
+            _sleep_jitter(0.5, 0.8)
 
-        # Begin moving along 40–50m path: inner weakens, occasional outer appears
-        steps = max(8, int(path_time_s // 6))
-        inner_series = _rssi_series(-60, -78, steps)
-        outer_series = _rssi_series(-75, -50, steps)
+        # Begin movement: left signal weakens, right signal appears
+        steps = max(10, int(path_time_s // 4))
+        left_series = _rssi_series(-50, -75, steps)
+        right_series = _rssi_series(-80, -55, steps)
+        
         for i in range(steps):
-            # Inner mostly still visible, weakening
-            if random.random() < 0.8:
-                send_detection_to_api("gate-inner", beacon_mac, inner_series[i], server_url, log)
-            # Outer occasionally begins to see, then strengthens
-            if i > steps // 3 and random.random() < 0.7:
-                send_detection_to_api("gate-outer", beacon_mac, outer_series[i], server_url, log)
-            _sleep_jitter(0.8, 1.2)
+            if single_scanner:
+                send_detection_to_api(single_sid, beacon_mac, left_series[i], server_url, log)
+            else:
+                # Both scanners see the boat during transition - this is crucial for door-lr logic
+                send_detection_to_api("gate-left", beacon_mac, left_series[i], server_url, log)
+                send_detection_to_api("gate-right", beacon_mac, right_series[i], server_url, log)
+            _sleep_jitter(0.2, 0.4)  # Faster updates for better detection
 
-        # Outer dominates near exit
-        for rssi in _rssi_series(-60, -46, 4):
-            send_detection_to_api("gate-outer", beacon_mac, rssi, server_url, log)
+        # Right dominates as boat exits
+        for rssi in _rssi_series(-55, -45, 5):
+            if single_scanner:
+                send_detection_to_api(single_sid, beacon_mac, rssi, server_url, log)
+            else:
+                send_detection_to_api("gate-right", beacon_mac, rssi, server_url, log)
+                # Occasional weak left signal
+                if random.random() < 0.3:
+                    send_detection_to_api("gate-left", beacon_mac, random.randint(-75, -65), server_url, log)
             _sleep_jitter(0.4, 0.7)
 
         # Reflection tail: keep reporting sporadic weaker readings for 10-15s
         tail_end = time.time() + random.uniform(*out_reflect_delay_s)
         while time.time() < tail_end:
             if random.random() < 0.6:
-                send_detection_to_api("gate-outer", beacon_mac, random.randint(-82, -68), server_url, log)
+                sid = single_sid if single_scanner else "gate-right"
+                send_detection_to_api(sid, beacon_mac, random.randint(-82, -68), server_url, log)
             _sleep_jitter(0.8, 1.5)
 
         # While outside, stay silent for the remainder (simulates going away)
         if outside_duration_s > 0:
-            remain = max(0.0, outside_duration_s - (time.time() - inner_linger_end))
+            remain = max(0.0, outside_duration_s - (time.time() - time.time()))
             if log:
                 log("outside_dwell", boat_id=boat_id, seconds=int(remain))
             time.sleep(remain)
@@ -152,40 +162,51 @@ def simulate_once(db: DatabaseManager, boat_id: str, beacon_mac: str,
         print("  -> Boat should be ON WATER")
             
     else:
-        # ENTER: Water -> Outer -> Inner -> Shed (with approach latency)
-        print("  Movement: Water -> Outer -> Inner -> Shed")
+        # ENTER: Water -> Right -> Left -> Shed (door-lr logic)
+        print("  Movement: Water -> Right -> Left -> Shed")
         if log:
-            log("movement_path", boat_id=boat_id, path="water->outer->inner->shed")
+            log("movement_path", boat_id=boat_id, path="water->right->left->shed")
 
-        # Approaching outer read zone
+        # Approaching right read zone
         _sleep_jitter(*in_detect_delay_s)
 
-        # Arriving from water to outer: progressive strengthening
-        steps = max(8, int(path_time_s // 6))
-        outer_series = _rssi_series(-72, -52, steps)
-        for i in range(steps):
-            send_detection_to_api("gate-outer", beacon_mac, outer_series[i], server_url, log)
-            # Occasional inner pre-read late in the approach
-            if i > steps * 2 // 3 and random.random() < 0.6:
-                send_detection_to_api("gate-inner", beacon_mac, random.randint(-68, -60), server_url, log)
-            _sleep_jitter(0.8, 1.2)
-
-        # Overlap near gate
-        for rssi in _rssi_series(-58, -54, 3):
-            send_detection_to_api("gate-outer", beacon_mac, rssi, server_url, log)
-            send_detection_to_api("gate-inner", beacon_mac, rssi - random.randint(6, 10), server_url, log)
+        # Start with strong right signal (boat approaching from water)
+        for rssi in _rssi_series(-50, -45, 3):
+            sid = single_sid if single_scanner else "gate-right"
+            send_detection_to_api(sid, beacon_mac, rssi, server_url, log)
             _sleep_jitter(0.5, 0.8)
 
-        # Inner dominates into shed
-        for rssi in _rssi_series(-60, -46, 4):
-            send_detection_to_api("gate-inner", beacon_mac, rssi, server_url, log)
+        # Begin movement: right signal weakens, left signal appears
+        steps = max(10, int(path_time_s // 4))
+        right_series = _rssi_series(-50, -75, steps)
+        left_series = _rssi_series(-80, -55, steps)
+        
+        for i in range(steps):
+            if single_scanner:
+                send_detection_to_api(single_sid, beacon_mac, right_series[i], server_url, log)
+            else:
+                # Both scanners see the boat during transition - this is crucial for door-lr logic
+                send_detection_to_api("gate-right", beacon_mac, right_series[i], server_url, log)
+                send_detection_to_api("gate-left", beacon_mac, left_series[i], server_url, log)
+            _sleep_jitter(0.2, 0.4)  # Faster updates for better detection
+
+        # Left dominates as boat enters shed
+        for rssi in _rssi_series(-55, -45, 5):
+            if single_scanner:
+                send_detection_to_api(single_sid, beacon_mac, rssi, server_url, log)
+            else:
+                send_detection_to_api("gate-left", beacon_mac, rssi, server_url, log)
+                # Occasional weak right signal
+                if random.random() < 0.3:
+                    send_detection_to_api("gate-right", beacon_mac, random.randint(-75, -65), server_url, log)
             _sleep_jitter(0.4, 0.7)
 
         # Settling inside: stable reads for ~20–40s
         settle_for = random.uniform(20.0, 40.0)
         end_settle = time.time() + settle_for
         while time.time() < end_settle:
-            send_detection_to_api("gate-inner", beacon_mac, random.randint(-56, -48), server_url, log)
+            sid = single_sid if single_scanner else "gate-left"
+            send_detection_to_api(sid, beacon_mac, random.randint(-56, -48), server_url, log)
             _sleep_jitter(0.8, 1.4)
 
         print("  -> Boat should be IN SHED")

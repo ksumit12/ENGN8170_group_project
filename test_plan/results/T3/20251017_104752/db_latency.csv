@@ -1,0 +1,2 @@
+avg_latency,max_latency,accuracy_score,consistency,timestamp_changes,total_samples
+2.005112714285714,2.006124,0.8997443642857144,1.0,0,15

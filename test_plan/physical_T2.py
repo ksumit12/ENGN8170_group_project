@@ -92,20 +92,87 @@ def append_csv_row(csv_path: str, row: List[str]) -> None:
 def plot_latency_hist(latencies: List[float], png_path: str) -> None:
     try:
         import matplotlib.pyplot as plt
+        import numpy as np
     except Exception:  # pragma: no cover
         print("Skipping histogram (matplotlib not installed)")
         return
     if not latencies:
         return
-    plt.figure(figsize=(6, 3))
-    plt.hist(latencies, bins=min(10, max(3, len(latencies)//2)), color="#4c78a8", edgecolor="#333")
-    plt.axvline(LATENCY_SLA, color="red", linestyle="--", label=f"SLA {LATENCY_SLA:.1f}s")
-    plt.xlabel("Latency (s)")
-    plt.ylabel("Count")
-    plt.title("Real-Time Update Latency Histogram")
-    plt.legend()
+    
+    # Create comprehensive latency analysis plot
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+    
+    # Plot 1: Latency histogram with SLA line
+    bins = min(15, max(5, len(latencies)//2))
+    n, bins, patches = ax1.hist(latencies, bins=bins, color="#4c78a8", edgecolor="#333", alpha=0.7)
+    
+    # Color bars based on SLA compliance
+    for i, patch in enumerate(patches):
+        if bins[i] <= LATENCY_SLA:
+            patch.set_facecolor('#2ca02c')  # Green for compliant
+        else:
+            patch.set_facecolor('#d62728')  # Red for non-compliant
+    
+    ax1.axvline(LATENCY_SLA, color="red", linestyle="--", linewidth=2, label=f"SLA {LATENCY_SLA:.1f}s")
+    ax1.set_xlabel("Latency (s)")
+    ax1.set_ylabel("Count")
+    ax1.set_title("T2 Real-Time Update Latency Distribution")
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # Plot 2: Latency over time (trial sequence)
+    trial_nums = list(range(1, len(latencies) + 1))
+    colors = ['green' if l <= LATENCY_SLA else 'red' for l in latencies]
+    ax2.scatter(trial_nums, latencies, c=colors, s=100, alpha=0.7, edgecolors='black')
+    ax2.axhline(LATENCY_SLA, color="red", linestyle="--", linewidth=2, label=f"SLA {LATENCY_SLA:.1f}s")
+    ax2.set_xlabel("Trial Number")
+    ax2.set_ylabel("Latency (s)")
+    ax2.set_title("Latency by Trial Sequence")
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    # Add trial numbers as annotations
+    for i, (trial, lat) in enumerate(zip(trial_nums, latencies)):
+        ax2.annotate(f'T{trial}', (trial, lat), xytext=(0, 10), textcoords='offset points',
+                    ha='center', va='bottom', fontsize=8)
+    
+    # Plot 3: SLA compliance pie chart
+    compliant = sum(1 for l in latencies if l <= LATENCY_SLA)
+    non_compliant = len(latencies) - compliant
+    labels = ['Compliant', 'Non-Compliant']
+    sizes = [compliant, non_compliant]
+    colors_pie = ['#2ca02c', '#d62728']
+    
+    if sizes[0] > 0 or sizes[1] > 0:
+        wedges, texts, autotexts = ax3.pie(sizes, labels=labels, colors=colors_pie, autopct='%1.1f%%', 
+                                          startangle=90, textprops={'fontsize': 10})
+        ax3.set_title(f"SLA Compliance\n({compliant}/{len(latencies)} trials)")
+    
+    # Plot 4: Statistical summary
+    if latencies:
+        stats_text = f"""Latency Statistics:
+        
+Mean: {np.mean(latencies):.2f}s
+Median: {np.median(latencies):.2f}s
+Min: {np.min(latencies):.2f}s
+Max: {np.max(latencies):.2f}s
+Std Dev: {np.std(latencies):.2f}s
+
+SLA Compliance:
+{compliant}/{len(latencies)} trials ({compliant/len(latencies)*100:.1f}%)
+
+95th Percentile: {np.percentile(latencies, 95):.2f}s"""
+        
+        ax4.text(0.1, 0.9, stats_text, transform=ax4.transAxes, fontsize=10,
+                verticalalignment='top', fontfamily='monospace',
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray", alpha=0.8))
+        ax4.set_xlim(0, 1)
+        ax4.set_ylim(0, 1)
+        ax4.axis('off')
+        ax4.set_title("Performance Summary")
+    
     plt.tight_layout()
-    plt.savefig(png_path, dpi=150)
+    plt.savefig(png_path, dpi=150, bbox_inches='tight')
     plt.close()
 
 

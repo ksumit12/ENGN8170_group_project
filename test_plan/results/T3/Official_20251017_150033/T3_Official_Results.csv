@@ -1,0 +1,45 @@
+Digital Boat Tracking Board – Result Sheet R3
+Result Sheet – Time Stamp Accuracy
+Test ID: T3
+Requirement: R3
+"Requirement Statement: The system shall log boat usage data, including entry time, exit time, and total duration for each outing, with timestamps accurate to within one second."
+Date: 17/10/2025
+Tester: Automated Test System
+Observer: System Monitor
+Environment: Controlled Test Environment
+System Version / Config: v1.0 - Door-LR Logic
+
+Results Table
+Trial No.,Expected Result,Observed Result,Dashboard / Log Status,Time (hh:mm:ss),Pass/Fail,Comments / Defects
+1,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 1.0s - Acceptable precision,15:00:33,Pass,
+2,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 1.0s - Acceptable precision,15:00:33,Pass,
+3,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 1.0s - Acceptable precision,15:00:33,Pass,
+4,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 1.0s - Acceptable precision,15:00:33,Pass,
+5,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 0.8s - Good precision,15:00:33,Pass,
+6,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 0.5s - Excellent precision,15:00:33,Pass,
+7,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 0.5s - Excellent precision,15:00:33,Pass,
+8,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 0.5s - Excellent precision,15:00:33,Pass,
+9,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 0.5s - Excellent precision,15:00:33,Pass,
+10,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 0.8s - Good precision,15:00:33,Pass,
+11,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 0.5s - Excellent precision,15:00:33,Pass,
+12,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 1.0s - Acceptable precision,15:00:33,Pass,
+13,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 1.0s - Acceptable precision,15:00:33,Pass,
+14,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 1.0s - Acceptable precision,15:00:33,Pass,
+15,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 1.0s - Acceptable precision,15:00:33,Pass,
+16,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 0.5s - Excellent precision,15:00:33,Pass,
+17,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 1.0s - Acceptable precision,15:00:33,Pass,
+18,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 0.5s - Excellent precision,15:00:33,Pass,
+19,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 0.8s - Good precision,15:00:33,Pass,
+20,Accurate,Accurate,Dashboard: Boat RC-001 timestamps accurate within 1.0s - Acceptable precision,15:00:33,Pass,
+
+Summary
+Total Trials: 20
+Passes: 20
+Fails: 0
+Accuracy (%): 1.0%
+
+Acceptance Criteria: ≥95% correct classifications across all crossings
+Result: Pass
+Issues Noted: No significant issues detected
+
+"Attachments: Screenshots, Logs, CSV Exports"

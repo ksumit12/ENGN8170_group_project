@@ -3,7 +3,7 @@ import random
 import argparse
 from datetime import datetime, timedelta, timezone
 
-from app.database_models import DatabaseManager, DetectionState, BeaconStatus
+from app.database_models import DatabaseManager, DetectionState, BeaconStatus, BoatStatus
 
 
 def generate_boat_details(boat_number: int):
@@ -122,39 +122,47 @@ def generate_realistic_usage_pattern(boat_details: dict, beacon, db: DatabaseMan
         duration_minutes = int(base_duration * season_factor)
         return_time = departure + timedelta(minutes=duration_minutes)
         
-        # Generate realistic RSSI values for the session
-        exit_rssi_inner = random.randint(-65, -55)
-        exit_rssi_outer = random.randint(-63, -53)
-        enter_rssi_outer = random.randint(-65, -55) 
-        enter_rssi_inner = random.randint(-63, -53)
+        # Generate realistic RSSI values with jitter and slight asymmetry
+        exit_rssi_inner = random.randint(-67, -56)
+        exit_rssi_outer = random.randint(-66, -54)
+        enter_rssi_outer = random.randint(-67, -56)
+        enter_rssi_inner = random.randint(-66, -54)
+        def jitter_db(x, spread=3):
+            return x + random.randint(-spread, spread)
+        # Small random timing jitter to emulate walking variability and reflections
+        j = lambda s: s + random.uniform(-0.6, 0.6)
         
-        # COMPLETE EXIT SEQUENCE (boat leaving shed)
-        # New FSM: INSIDE → OUT_PENDING (inner) → OUTSIDE (outer within W)
-        # 1. Initial movement detected by inner scanner
-        db.insert_detection("gate-inner", beacon.id, rssi=exit_rssi_inner-10, state=DetectionState.OUT_PENDING, timestamp=departure)
+        # COMPLETE EXIT SEQUENCE (boat leaving shed) - door-lr logic
+        # New FSM: INSIDE → OUT_PENDING (left) → OUTSIDE (right within W)
+        # 1. Initial movement detected by left scanner
+        db.insert_detection("gate-left", beacon.id, rssi=jitter_db(exit_rssi_inner-12), state=DetectionState.OUT_PENDING, timestamp=departure)
         
-        # 2. Boat reaches inner scanner (stronger signal)
-        db.insert_detection("gate-inner", beacon.id, rssi=exit_rssi_inner, state=DetectionState.OUT_PENDING, timestamp=departure + timedelta(seconds=2))
+        # 2. Boat reaches left scanner (stronger signal)
+        db.insert_detection("gate-left", beacon.id, rssi=jitter_db(exit_rssi_inner), state=DetectionState.OUT_PENDING, timestamp=departure + timedelta(seconds=j(2)))
         
-        # 3. Boat detected by outer scanner (within W_pair ~5s)
-        db.insert_detection("gate-outer", beacon.id, rssi=exit_rssi_outer-5, state=DetectionState.OUT_PENDING, timestamp=departure + timedelta(seconds=4))
+        # 3. Boat detected by right scanner (within W_pair ~5s)
+        db.insert_detection("gate-right", beacon.id, rssi=jitter_db(exit_rssi_outer-6), state=DetectionState.OUT_PENDING, timestamp=departure + timedelta(seconds=j(4)))
         
         # 4. Boat exits (commits to OUTSIDE)
-        db.insert_detection("gate-outer", beacon.id, rssi=exit_rssi_outer, state=DetectionState.OUTSIDE, timestamp=departure + timedelta(seconds=6))
+        db.insert_detection("gate-right", beacon.id, rssi=jitter_db(exit_rssi_outer), state=DetectionState.OUTSIDE, timestamp=departure + timedelta(seconds=j(6)))
+        # Add weak tail reflections after exit
+        db.insert_detection("gate-left", beacon.id, rssi=jitter_db(exit_rssi_inner-18, 4), state=DetectionState.OUT_PENDING, timestamp=departure + timedelta(seconds=j(8)))
         
-        # COMPLETE ENTER SEQUENCE (boat returning to shed)
-        # New FSM: OUTSIDE → IN_PENDING (outer) → INSIDE (inner within W)
-        # 1. Boat approaching from water (outer scanner first detection)
-        db.insert_detection("gate-outer", beacon.id, rssi=enter_rssi_outer-10, state=DetectionState.IN_PENDING, timestamp=return_time)
+        # COMPLETE ENTER SEQUENCE (boat returning to shed) - door-lr logic
+        # New FSM: OUTSIDE → IN_PENDING (right) → INSIDE (left within W)
+        # 1. Boat approaching from water (right scanner first detection)
+        db.insert_detection("gate-right", beacon.id, rssi=jitter_db(enter_rssi_outer-12), state=DetectionState.IN_PENDING, timestamp=return_time)
         
-        # 2. Boat reaches outer scanner (stronger signal)
-        db.insert_detection("gate-outer", beacon.id, rssi=enter_rssi_outer, state=DetectionState.IN_PENDING, timestamp=return_time + timedelta(seconds=2))
+        # 2. Boat reaches right scanner (stronger signal)
+        db.insert_detection("gate-right", beacon.id, rssi=jitter_db(enter_rssi_outer), state=DetectionState.IN_PENDING, timestamp=return_time + timedelta(seconds=j(2)))
         
-        # 3. Boat detected by inner scanner (within W_pair ~5s)
-        db.insert_detection("gate-inner", beacon.id, rssi=enter_rssi_inner-5, state=DetectionState.IN_PENDING, timestamp=return_time + timedelta(seconds=4))
+        # 3. Boat detected by left scanner (within W_pair ~5s)
+        db.insert_detection("gate-left", beacon.id, rssi=jitter_db(enter_rssi_inner-6), state=DetectionState.IN_PENDING, timestamp=return_time + timedelta(seconds=j(4)))
         
         # 4. Boat enters shed (commits to INSIDE)
-        db.insert_detection("gate-inner", beacon.id, rssi=enter_rssi_inner, state=DetectionState.INSIDE, timestamp=return_time + timedelta(seconds=6))
+        db.insert_detection("gate-left", beacon.id, rssi=jitter_db(enter_rssi_inner), state=DetectionState.INSIDE, timestamp=return_time + timedelta(seconds=j(6)))
+        # Add weak right tail after entry
+        db.insert_detection("gate-right", beacon.id, rssi=jitter_db(enter_rssi_outer-18, 4), state=DetectionState.IN_PENDING, timestamp=return_time + timedelta(seconds=j(8)))
         
         session_count += 1
         
@@ -167,7 +175,7 @@ def generate_realistic_usage_pattern(boat_details: dict, beacon, db: DatabaseMan
 
 def main():
     parser = argparse.ArgumentParser(description="Seed boat tracking database with realistic data")
-    parser.add_argument("--boats", type=int, default=15, help="Number of boats to create (default: 15)")
+    parser.add_argument("--boats", type=int, default=3, help="Number of boats to create (default: 3)")
     parser.add_argument("--days", type=int, default=30, help="Days of historical data to generate (default: 30)")
     parser.add_argument("--reset", action="store_true", help="Reset database before seeding")
     
@@ -177,16 +185,16 @@ def main():
     
     # Reset database if requested
     if args.reset:
-        print("🗑️  Resetting database...")
+        print("Resetting database...")
         db.reset_all()
-        print("✅ Database reset complete")
+        print("Database reset complete")
     
-    print(f"🚀 Seeding database with {args.boats} boats and {args.days} days of history...")
+    print(f"Seeding database with {args.boats} boats and {args.days} days of history...")
 
-    # Ensure scanners exist with correct IDs for FSM
-    db.upsert_scanner("gate-outer", "Outer Gate Scanner", "Gate - Water Side")
-    db.upsert_scanner("gate-inner", "Inner Gate Scanner", "Gate - Shed Side")
-    print("📡 Created/updated scanner definitions")
+    # Ensure scanners exist with correct IDs for door-lr FSM
+    db.upsert_scanner("gate-right", "Right Gate Scanner", "Gate - Water Side")
+    db.upsert_scanner("gate-left", "Left Gate Scanner", "Gate - Shed Side")
+    print("Created/updated scanner definitions")
 
     # Create boats with detailed specifications
     boats = []
@@ -204,12 +212,12 @@ def main():
                 boat_details["class_type"], 
                 notes=boat_details["notes"]
             )
-            print(f"🚤 Created: {boat_details['name']} ({boat_details['class_type']})")
+            print(f"Created: {boat_details['name']} ({boat_details['class_type']})")
         else:
             # Update existing boat with detailed notes
             db.update_boat(boat.id, notes=boat_details["notes"])
             db.update_boat_status(boat.id, __import__('app.database_models', fromlist=['BoatStatus']).BoatStatus.IN_HARBOR)
-            print(f"🔄 Updated: {boat_details['name']} ({boat_details['class_type']})")
+            print(f"Updated: {boat_details['name']} ({boat_details['class_type']})")
         
         boats.append((boat, boat_details))
 
@@ -219,35 +227,47 @@ def main():
         if not beacon:
             beacon_name = f"{boat_details['boat_id']}-Beacon"
             beacon = db.upsert_beacon(mac, name=beacon_name, rssi=-80)
-            print(f"📡 Created beacon: {beacon_name} ({mac})")
+            print(f"Created beacon: {beacon_name} ({mac})")
         
         # Ensure beacon is assigned to boat
         if beacon.status != BeaconStatus.ASSIGNED:
             success = db.assign_beacon_to_boat(beacon.id, boat.id, notes=f"Assigned to {boat_details['name']}")
             if success:
-                print(f"🔗 Assigned beacon {mac} to {boat_details['name']}")
+                print(f"Assigned beacon {mac} to {boat_details['name']}")
+        
+        # Initialize boat as INSIDE shed (default state)
+        db.update_beacon_state(beacon.id, DetectionState.INSIDE)
+        db.update_boat_status(boat.id, BoatStatus.IN_HARBOR)
+        print(f"Initialized {boat_details['name']} as INSIDE shed")
         
         beacons.append(beacon)
 
-    print(f"\n📈 Generating {args.days} days of detailed usage history...")
+    print(f"\nGenerating {args.days} days of detailed usage history...")
     
     # Generate detailed historical data for each boat
     total_sessions = 0
     for (boat, boat_details), beacon in zip(boats, beacons):
-        print(f"\n🚤 Processing {boat_details['name']}...")
+        print(f"\nProcessing {boat_details['name']}...")
         sessions = generate_realistic_usage_pattern(boat_details, beacon, db, args.days)
         total_sessions += sessions
 
-    print(f"\n✅ Database seeding complete!")
-    print(f"📊 Summary:")
-    print(f"   • {args.boats} boats created with detailed specifications")
-    print(f"   • {len(beacons)} beacons assigned")
-    print(f"   • {args.days} days of historical data")
-    print(f"   • Detailed exit/entry sequences for realistic FSM behavior")
-    print(f"   • All boats start in IDLE state (no current location)")
-    print(f"\n🎯 Next steps:")
+    # IMPORTANT: After generating history, ensure all boats are set to IN_HARBOR
+    print(f"\nSetting all boats to IN_HARBOR state...")
+    for (boat, boat_details), beacon in zip(boats, beacons):
+        db.update_beacon_state(beacon.id, DetectionState.INSIDE)
+        db.update_boat_status(boat.id, BoatStatus.IN_HARBOR)
+        print(f"  {boat_details['name']}: IN_HARBOR + INSIDE")
+    
+    print(f"\nDatabase seeding complete!")
+    print(f"Summary:")
+    print(f"   - {args.boats} boats created with detailed specifications")
+    print(f"   - {len(beacons)} beacons assigned")
+    print(f"   - {args.days} days of historical data")
+    print(f"   - Detailed exit/entry sequences for realistic FSM behavior")
+    print(f"   - All boats initialized in SHED (IN_HARBOR + INSIDE state)")
+    print(f"\nNext steps:")
     print(f"   1. Run the boat tracking system: python3 boat_tracking_system.py --api-port 8000 --web-port 5000")
-    print(f"   2. Run realistic simulation: python3 sim_run_simulator.py")
+    print(f"   2. Run realistic simulation: python3 door_lr_simulator.py")
     print(f"   3. View dashboard: http://127.0.0.1:5000/")
     print(f"   4. View FSM animation: http://127.0.0.1:5000/fsm")
 

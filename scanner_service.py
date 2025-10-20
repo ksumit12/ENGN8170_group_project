@@ -27,10 +27,16 @@ def start_scanners_from_config(config: Dict) -> List[BLEScanner]:
     api_port = config.get('api_port', 8000)
     server_base_url = f"http://{api_host}:{api_port}"
 
+    # SINGLE_SCANNER override: if env set, only start the first configured scanner
+    single_scanner = os.getenv('SINGLE_SCANNER', '0') == '1'
+    preferred_id = os.getenv('SCANNER_ID')
+
     gates = config.get('gates')
     if not gates:
         # Backward compatibility: fall back to flat scanners list
-        for sc in config.get('scanners', []):
+        for idx, sc in enumerate(config.get('scanners', [])):
+            if single_scanner and preferred_id and sc.get('id') != preferred_id:
+                continue
             cfg = ScannerConfig(
                 scanner_id=sc['id'],
                 gate_id=sc.get('gate_id'),
@@ -46,13 +52,18 @@ def start_scanners_from_config(config: Dict) -> List[BLEScanner]:
             s = BLEScanner(cfg)
             s.start_scanning()
             scanners.append(s)
+            if single_scanner:
+                logger.info("SINGLE_SCANNER=1: started only one scanner (flat config)", "SCANNER")
+                break
         return scanners
 
     # Multi-gate
     for gate in gates:
         gate_id = gate['id']
         # hysteresis is consumed by API/FSM; scanner only needs scanners list
-        for sc in gate.get('scanners', []):
+        for idx, sc in enumerate(gate.get('scanners', [])):
+            if single_scanner and preferred_id and (sc.get('id') or f"{gate_id}-{sc.get('adapter','hci')}") != preferred_id:
+                continue
             cfg = ScannerConfig(
                 scanner_id=sc.get('id') or f"{gate_id}-{sc.get('adapter','hci')}",
                 gate_id=gate_id,
@@ -69,6 +80,9 @@ def start_scanners_from_config(config: Dict) -> List[BLEScanner]:
             s = BLEScanner(cfg)
             s.start_scanning()
             scanners.append(s)
+            if single_scanner:
+                logger.info("SINGLE_SCANNER=1: started only one scanner (gated config)", "SCANNER")
+                return scanners
     return scanners
 
 

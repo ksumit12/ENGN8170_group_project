@@ -29,9 +29,12 @@ class APIServer:
         CORS(self.app)
         
         self.db = DatabaseManager(db_path)
-        # Build pluggable FSM engine (auto-select door L/R engine on non-main branches)
+        # Build pluggable FSM engine
         import os, subprocess
-        if not os.getenv('FSM_ENGINE'):
+        # Force SingleScannerEngine when SINGLE_SCANNER=1
+        if os.getenv('SINGLE_SCANNER', '0') == '1':
+            os.environ['FSM_ENGINE'] = 'app.single_scanner_engine:SingleScannerEngine'
+        elif not os.getenv('FSM_ENGINE'):
             try:
                 branch = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=os.path.dirname(__file__) or '.', text=True).strip()
             except Exception:
@@ -79,6 +82,8 @@ class APIServer:
                 
                 processed_count = 0
                 state_changes = []
+                import os
+                single_scanner = os.getenv('SINGLE_SCANNER', '0') == '1'
                 
                 for obs in observations:
                     mac_address = obs.get('mac')
@@ -109,6 +114,16 @@ class APIServer:
                     if not assigned_boat:
                         # Skip FSM/state updates for unassigned beacons; discovery UI uses live scanner feed
                         logger.debug(f"Unassigned beacon detected: {name} ({mac_address}) - skipping FSM processing", "SCANNER")
+                        processed_count += 1
+                        continue
+
+                    # SINGLE_SCANNER mode: bypass FSM and mark presence immediately; background task will handle OUT
+                    if single_scanner:
+                        try:
+                            # Immediate reflect as IN_HARBOR on detection for demo responsiveness
+                            self.db.update_boat_status(assigned_boat.id, BoatStatus.IN_HARBOR)
+                        except Exception:
+                            pass
                         processed_count += 1
                         continue
 

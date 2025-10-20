@@ -1,0 +1,8 @@
+Metric,Value,Description
+Total Detections,54,Total detection events processed
+Active Scanners,2,Number of scanners receiving data
+Boats Tracked,1,Number of boats with detections
+Boats in Harbor,0,Current boats in harbor
+System Status,OPERATIONAL,Overall system status
+FSM Engine,Door-LR,Active FSM engine type
+Timestamp Fix,APPLIED,Entry/exit timestamp fix status
