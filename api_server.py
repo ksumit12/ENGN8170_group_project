@@ -118,30 +118,27 @@ class APIServer:
                     except Exception:
                         pass
 
-                    # SINGLE_SCANNER mode: bypass FSM and mark presence immediately; background task will handle OUT
+                    # SINGLE_SCANNER mode: immediate status update on detection
                     if single_scanner:
                         try:
                             now_dt = datetime.now(timezone.utc)
-                            
-                            # Check if boat was previously OUT
                             boat_before = self.db.get_boat(assigned_boat.id)
                             was_out = boat_before and getattr(boat_before, 'status', None) == BoatStatus.OUT
                             
-                            # Immediate reflect as IN_HARBOR on detection for demo responsiveness
+                            # Always set IN_HARBOR immediately on detection
                             self.db.update_boat_status(assigned_boat.id, BoatStatus.IN_HARBOR)
                             
-                            # If boat was OUT and now returning, stamp entry and end trip
+                            # Stamp entry ONLY if transitioning from OUT
                             if was_out:
-                                logger.info(f"Boat returning to shed: {assigned_boat.name} - stamping entry timestamp", "DETECTION")
                                 self.db.update_beacon_state(beacon.id, DetectionState.ENTERED, entry_timestamp=now_dt)
                                 try:
                                     trip_id, duration = self.db.end_trip(assigned_boat.id, beacon.id, now_dt)
                                     if trip_id:
-                                        logger.info(f"Trip completed for boat {assigned_boat.name}: {duration} min", "TRIP")
+                                        logger.info(f"Trip ended: {assigned_boat.name} ({duration} min)", "TRIP")
                                 except Exception as e:
-                                    logger.error(f"Failed to end trip: {e}", "TRIP")
+                                    logger.error(f"End trip failed: {e}", "TRIP")
                         except Exception as e:
-                            logger.error(f"Error processing single-scanner detection: {e}", "DETECTION")
+                            logger.error(f"Detection error: {e}", "DETECTION")
                         processed_count += 1
                         continue
 
@@ -609,11 +606,8 @@ class APIServer:
                                 # Skip any OUT stamping or status change until we have at least one detection
                                 continue
                             
-                            # Additional startup guard: prevent OUT status during initial grace period
-                            startup_grace_period = 30  # seconds after server start
-                            if new_status == BoatStatus.OUT and (time.time() - self._started_at) < startup_grace_period:
-                                # During startup grace period, don't mark boats as OUT
-                                continue
+                            # Skip startup grace - let detection handler manage timestamps properly
+                            pass
                             # Demo-aware timestamping: only record timestamps on OUT/IN transitions.
                             try:
                                 # Look up current FSM state
@@ -621,41 +615,20 @@ class APIServer:
                             except Exception:
                                 cur_state = FSMState.IDLE
 
-                            # Transition to OUT: set EXITED and start a trip
-                            if new_status == BoatStatus.OUT:
-                                # Only allow OUT stamping if we've actually seen this beacon
-                                # at least once since the server started (prevents stamping
-                                # for legacy last_seen values or before first live detection).
-                                try:
-                                    seen_since_start = bool(last_seen_dt) and (last_seen_dt.timestamp() >= getattr(self, '_started_at', 0.0))
-                                except Exception:
-                                    seen_since_start = False
-                                if not seen_since_start:
-                                    # Skip OUT stamping until the first live detection happens
-                                    continue
-                                try:
-                                    self.db.update_beacon_state(beacon.id, DetectionState.EXITED, exit_timestamp=datetime.now(timezone.utc))
-                                    # Start trip when leaving shed
-                                    self.db.start_trip(boat.id, beacon.id, datetime.now(timezone.utc))
-                                except Exception:
-                                    pass
-
-                            # Transition to IN: set ENTERED and end recent trip
-                            elif new_status == BoatStatus.IN_HARBOR:
+                            # Transition to OUT: ONLY stamp if we're actually transitioning from IN
+                            if new_status == BoatStatus.OUT and boat.status == BoatStatus.IN_HARBOR:
                                 try:
                                     now_ts = datetime.now(timezone.utc)
-                                    # Only stamp entry if we are returning from OUT status
-                                    if boat.status == BoatStatus.OUT:
-                                        self.db.update_beacon_state(beacon.id, DetectionState.ENTERED, entry_timestamp=now_ts)
-                                        self.db.end_trip(boat.id, beacon.id, now_ts)
-                                    else:
-                                        # Optionally suppress the very first entry after startup
-                                        if suppress_initial_entry:
-                                            self.db.update_beacon_state(beacon.id, DetectionState.ENTERED)
-                                        else:
-                                            self.db.update_beacon_state(beacon.id, DetectionState.ENTERED, entry_timestamp=now_ts)
-                                except Exception:
-                                    pass
+                                    self.db.update_beacon_state(beacon.id, DetectionState.EXITED, exit_timestamp=now_ts)
+                                    self.db.start_trip(boat.id, beacon.id, now_ts)
+                                    logger.info(f"Boat left shed: {boat.name}", "STATUS")
+                                except Exception as e:
+                                    logger.error(f"Failed to stamp exit: {e}", "STATUS")
+
+                            # Transition to IN: ONLY stamp if returning from OUT (handled in detection now)
+                            elif new_status == BoatStatus.IN_HARBOR:
+                                # Detection handler already manages entry timestamps
+                                pass
 
                             # Finally, update boat status for dashboard
                             self.db.update_boat_status(boat.id, new_status)
