@@ -994,7 +994,12 @@ class BoatTrackingSystem:
                         r['total_minutes'], r['avg_duration'], r['boat_notes']
                     ])
             
-            return Response(buf.getvalue(), mimetype='text/csv')
+            # Set filename from query param or generate default
+            filename = data.get('filename', 'boat_usage_report.csv')
+            
+            response = Response(buf.getvalue(), mimetype='text/csv')
+            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
         
         @self.web_app.route('/api/boats/list')
         def api_boats_list():
@@ -3651,14 +3656,14 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
         
         <div class="filter-group">
           <label for="boatSelect">Boat (Optional)</label>
-          <select id="boatSelect">
+          <select id="boatSelect" onchange="runReport()">
             <option value="">All Boats</option>
           </select>
         </div>
         
         <div class="filter-group">
           <label for="statusFilter">Status Filter</label>
-          <select id="statusFilter">
+          <select id="statusFilter" onchange="runReport()">
             <option value="">All Status</option>
             <option value="ACTIVE">Active Only</option>
             <option value="RETIRED">Retired Only</option>
@@ -3666,11 +3671,8 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
         </div>
         
         <div class="actions">
-          <button class="btn btn-primary" onclick="runReport()">
-            Generate Report
-          </button>
           <button class="btn btn-secondary" onclick="clearFilters()">
-            Clear
+            Clear Filters
           </button>
         </div>
       </div>
@@ -3860,14 +3862,32 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
       const toDate = document.getElementById('toDate').value;
       const boatId = document.getElementById('boatSelect').value;
       
+      // Generate filename with date range
+      let filename = 'boat_trips';
+      if (fromDate && toDate) {
+        const fromStr = fromDate.split('T')[0].replace(/-/g, '');
+        const toStr = toDate.split('T')[0].replace(/-/g, '');
+        filename += `_${fromStr}_to_${toStr}`;
+      } else {
+        const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+        filename += `_${today}`;
+      }
+      filename += '.csv';
+      
       const params = new URLSearchParams();
       if (fromDate) params.set('from', fromDate);
       if (toDate) params.set('to', toDate);
       if (boatId) params.set('boatId', boatId);
       params.set('includeTrips', '1');  // Include detailed trip logs
+      params.set('filename', filename);  // Send desired filename
       
       const url = '/api/reports/usage/export.csv?' + params.toString();
-      window.open(url, '_blank');
+      
+      // Use download link instead of window.open to control filename
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
     }
 
     function displaySessions(data, boatId) {
