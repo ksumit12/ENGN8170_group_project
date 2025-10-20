@@ -1109,6 +1109,7 @@ class BoatTrackingSystem:
                         api_key=scanner_config.get('api_key', 'default-key'),
                         rssi_threshold=scanner_config.get('rssi_threshold', -80),
                         scan_interval=scanner_config.get('scan_interval', 1.0),
+                        batch_size=scanner_config.get('batch_size', 1),
                         adapter=adapter
                     )
                     scanner = BLEScanner(config)
