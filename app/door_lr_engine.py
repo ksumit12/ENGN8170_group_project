@@ -41,7 +41,12 @@ class DoorLREngine(IFSMEngine):
         self.classifier = DirectionClassifier(params, calib_map, logger)
 
     def process_detection(self, scanner_id: str, beacon_id: str, rssi: int) -> Optional[Tuple[Any, Any]]:
-        # Map scanner IDs to left/right by suffix
+        # In single-scanner branch, this engine should not be used; early return keeps behavior inert
+        try:
+            from .database_models import DetectionState
+            return (DetectionState.IDLE, DetectionState.IDLE)
+        except Exception:
+            return None
         sid = (scanner_id or '').lower()
         leftish = sid.endswith('left') or sid.endswith('door-left') or sid.endswith('gate-left')
         rightish = sid.endswith('right') or sid.endswith('door-right') or sid.endswith('gate-right')

@@ -142,10 +142,8 @@ class EntryExitFSM:
         thread.start()
     
     def process_detection(self, scanner_id: str, beacon_id: str, rssi: int) -> Optional[Tuple[FSMState, FSMState]]:
-        """
-        Process a detection and return (old_state, new_state) if state changed.
-        Returns None if no state change occurred.
-        """
+        """Disabled in single-scanner branch. Leave decisions to API server updater."""
+        return None
         # Normalize scanner id to avoid case/whitespace mismatches
         try:
             scanner_id = (scanner_id or "").strip().lower()

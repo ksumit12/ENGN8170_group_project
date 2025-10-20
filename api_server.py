@@ -29,18 +29,9 @@ class APIServer:
         CORS(self.app)
         
         self.db = DatabaseManager(db_path)
-        # Build pluggable FSM engine
+        # Build engine (hard-lock to SingleScannerEngine in this branch to avoid any two-scanner paths)
         import os, subprocess
-        # Force SingleScannerEngine when SINGLE_SCANNER=1
-        if os.getenv('SINGLE_SCANNER', '0') == '1':
-            os.environ['FSM_ENGINE'] = 'app.single_scanner_engine:SingleScannerEngine'
-        elif not os.getenv('FSM_ENGINE'):
-            try:
-                branch = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=os.path.dirname(__file__) or '.', text=True).strip()
-            except Exception:
-                branch = 'main'
-            if branch != 'main':
-                os.environ['FSM_ENGINE'] = 'app.door_lr_engine:DoorLREngine'
+        os.environ['FSM_ENGINE'] = 'app.single_scanner_engine:SingleScannerEngine'
         self.fsm: IFSMEngine = build_fsm_engine(
             db_manager=self.db,
             outer_scanner_id=outer_scanner_id,
