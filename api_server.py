@@ -594,14 +594,16 @@ class APIServer:
 
                             # Transition to OUT: set EXITED and start a trip
                             if new_status == BoatStatus.OUT:
-                                # Startup grace: do not stamp or flip to OUT within the first window
-                                # after process start. This avoids "ON WATER at launch" when the
-                                # beacon simply hasn't been seen yet by the new process.
+                                # Only allow OUT stamping if we've actually seen this beacon
+                                # at least once since the server started (prevents stamping
+                                # for legacy last_seen values or before first live detection).
                                 try:
-                                    if (time.time() - getattr(self, '_started_at', 0.0)) < max(1.0, float(window_seconds)):
-                                        continue
+                                    seen_since_start = bool(last_seen_dt) and (last_seen_dt.timestamp() >= getattr(self, '_started_at', 0.0))
                                 except Exception:
-                                    pass
+                                    seen_since_start = False
+                                if not seen_since_start:
+                                    # Skip OUT stamping until the first live detection happens
+                                    continue
                                 try:
                                     self.db.update_beacon_state(beacon.id, DetectionState.EXITED, exit_timestamp=datetime.now(timezone.utc))
                                     # Start trip when leaving shed
