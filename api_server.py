@@ -579,6 +579,10 @@ class APIServer:
                         
                         # Only update and log if status changed
                         if boat.status != new_status:
+                            # Startup guard: do not force OUT when we've never seen the beacon yet
+                            if new_status == BoatStatus.OUT and last_seen_dt is None:
+                                # Skip any OUT stamping or status change until we have at least one detection
+                                continue
                             # Demo-aware timestamping: only record timestamps on OUT/IN transitions.
                             try:
                                 # Look up current FSM state
