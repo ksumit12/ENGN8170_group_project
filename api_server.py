@@ -503,14 +503,11 @@ class APIServer:
         pass
     
     def _update_boat_statuses(self):
-        """Background task to update boat statuses.
-        Single-scanner friendly: mark IN_HARBOR when assigned beacon was seen recently; otherwise OUT.
-        """
+        """Background task - ONLY marks boats OUT when beacon not seen."""
+        import os
         while True:
             try:
-                # Get all boats with assigned beacons
                 boats = self.db.get_all_boats()
-                
                 window_seconds = int(os.getenv('PRESENCE_ACTIVE_WINDOW_S', '8'))
                 
                 for boat in boats:
