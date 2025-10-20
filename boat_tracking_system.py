@@ -1400,6 +1400,30 @@ class BoatTrackingSystem:
         .primary-btn:hover { filter: brightness(1.05); }
         .dashboard { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 20px; }
         @media (max-width: 1100px) { .dashboard { grid-template-columns: 1fr; } }
+        
+        /* Mobile optimization */
+        @media (max-width: 768px) {
+            body { padding: 12px; }
+            .brand h1 { font-size: 1.25rem; }
+            .primary-btn { padding: 10px 12px; font-size: 0.9rem; }
+            .whiteboard-board { padding: 12px; }
+            .wb-title { font-size: 1.2rem; }
+            .wb-table th, .wb-table td { padding: 8px 6px; font-size: 0.9rem; }
+            .dashboard { gap: 12px; }
+            .card { padding: 14px; }
+            .boat-item, .beacon-item { padding: 10px; }
+            .wb-table { font-size: 0.85rem; }
+            .wb-table th, .wb-table td { padding: 6px 4px; }
+            .status-badge { font-size: 0.8rem; padding: 2px 6px; }
+            .rssi-info { font-size: 0.8rem; }
+        }
+        
+        /* Tablet optimization */
+        @media (min-width: 769px) and (max-width: 1024px) {
+            .dashboard { grid-template-columns: 1fr 1fr; gap: 16px; }
+            .whiteboard-board { padding: 16px; }
+            .wb-table th, .wb-table td { padding: 10px 8px; }
+        }
         .card { 
             background: var(--paper); color: #2c3e50; border-radius: 14px; padding: 22px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.25);
@@ -1468,7 +1492,7 @@ class BoatTrackingSystem:
                         <th>Time IN SHED</th>
                         <th>Time ON WATER</th>
                         <th>Last Seen</th>
-                        <th>Signal</th>
+                        <th>Water Today</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1489,11 +1513,11 @@ class BoatTrackingSystem:
                 </div>
             </div>
             
-            <!-- Beacons Status -->
+            <!-- Boats Outside (replaces Beacons Status) -->
             <div class="card">
-                <h2>Beacons Status</h2>
-                <div id="beaconsList">
-                    <p>Loading beacons...</p>
+                <h2>Boats Outside</h2>
+                <div id="outsideList">
+                    <p>Loading boats...</p>
                 </div>
             </div>
             
@@ -1763,6 +1787,7 @@ class BoatTrackingSystem:
                     }
                     
                     let html = '';
+                    let outsideHtml = '';
                     data.forEach(boat => {
                         const statusClass = boat.status === 'in_harbor' ? 'in-harbor' : 'out';
                         const statusBadge = boat.status === 'in_harbor' ? 'status-in-harbor' : 'status-out';
@@ -1781,55 +1806,23 @@ class BoatTrackingSystem:
                                 ${beaconInfo}
                             </div>
                         `;
+
+                        if (boat.status !== 'in_harbor') {
+                            outsideHtml += `
+                                <div class="boat-item out">
+                                    <div><strong>${boat.name}</strong> (${boat.class_type})</div>
+                                </div>
+                            `;
+                        }
                     });
                     boatsList.innerHTML = html;
+                    const outsideList = document.getElementById('outsideList');
+                    if (outsideList) outsideList.innerHTML = outsideHtml || '<p>No boats outside</p>';
                 })
                 .catch(error => console.error('Error updating boats:', error));
         }
         
-        function updateBeacons() {
-            // Beacons Status card: show only beacons that are assigned (registered)
-            fetch('/api/beacons')
-                .then(response => response.json())
-                .then(data => {
-                    const beaconsList = document.getElementById('beaconsList');
-                    // Only show beacons that are currently assigned and have been seen recently
-                    const nowMs = Date.now();
-                    const freshnessMs = 15 * 1000; // 15s freshness for status card
-                    const assignedOnly = data.filter(b => 
-                        b.status === 'assigned' && b.last_seen && (nowMs - new Date(b.last_seen).getTime()) <= freshnessMs
-                    );
-                    if (assignedOnly.length === 0) {
-                        beaconsList.innerHTML = '<p>No beacons detected</p>';
-                        return;
-                    }
-                    
-                    let html = '';
-                    assignedOnly.forEach(beacon => {
-                        const statusClass = beacon.status === 'assigned' ? 'assigned' : 'unclaimed';
-                        const statusBadge = beacon.status === 'assigned' ? 'status-assigned' : 'status-unclaimed';
-                        const boatInfo = beacon.assigned_boat ? 
-                            `<div class="rssi-info">Assigned to: ${beacon.assigned_boat.name}</div>` : 
-                            '<div class="rssi-info">Unclaimed</div>';
-                        const lastSeen = beacon.last_seen ? 
-                            `<div class="rssi-info">Last seen: ${new Date(beacon.last_seen).toLocaleString()}</div>` : 
-                            '<div class="rssi-info">Never seen</div>';
-                        
-                        html += `
-                            <div class="beacon-item ${statusClass}">
-                                <div>
-                                    <strong>${beacon.mac_address}</strong>
-                                    <span class="status-badge ${statusBadge}">${beacon.status.toUpperCase()}</span>
-                                </div>
-                                ${boatInfo}
-                                ${lastSeen}
-                            </div>
-                        `;
-                    });
-                    beaconsList.innerHTML = html;
-                })
-                .catch(error => console.error('Error updating beacons:', error));
-        }
+        function updateBeacons() { /* removed in this branch */ }
         
         function updatePresence() {
             fetch('/api/presence')
@@ -1941,8 +1934,8 @@ class BoatTrackingSystem:
                             lastSeen = lastSeenDate.toLocaleDateString('en-AU') + ' ' + lastSeenDate.toLocaleTimeString();
                         }
                     }
-                    const signal = b.beacon && b.beacon.last_rssi != null ? `${rssiToPercent(b.beacon.last_rssi)}% (${b.beacon.last_rssi} dBm)` : '—';
-                    return `<tr><td>${boatName}</td><td>${status}</td><td>${timeIn}</td><td>${timeOut}</td><td>${lastSeen}</td><td>${signal}</td></tr>`;
+                    const waterToday = (b.water_time_today_minutes != null) ? `${b.water_time_today_minutes} min` : '—';
+                    return `<tr><td>${boatName}</td><td>${status}</td><td>${timeIn}</td><td>${timeOut}</td><td>${lastSeen}</td><td>${waterToday}</td></tr>`;
                 }).join('');
                 tbody.innerHTML = rows;
             }).catch(() => {
