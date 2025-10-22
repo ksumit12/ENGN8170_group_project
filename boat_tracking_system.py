@@ -1184,6 +1184,36 @@ class BoatTrackingSystem:
                 logger.error(f"Failed to export weekly logs: {e}", "API", e)
                 return jsonify({'error': str(e)}), 500
         
+        @self.web_app.route('/api/admin/trigger-daily-accumulation', methods=['POST'])
+        def trigger_daily_accumulation():
+            """Manually trigger daily CSV accumulation for testing."""
+            try:
+                logger.info("Manual trigger: Daily CSV accumulation", "API")
+                self._perform_daily_csv_accumulation()
+                return jsonify({
+                    'success': True,
+                    'message': 'Daily CSV accumulation completed successfully',
+                    'timestamp': datetime.now(timezone.utc).isoformat()
+                }), 200
+            except Exception as e:
+                logger.error(f"Failed to trigger daily accumulation: {e}", "API", e)
+                return jsonify({'error': str(e)}), 500
+        
+        @self.web_app.route('/api/admin/trigger-weekly-export', methods=['POST'])
+        def trigger_weekly_export():
+            """Manually trigger weekly export for testing."""
+            try:
+                logger.info("Manual trigger: Weekly export", "API")
+                self._perform_weekly_export()
+                return jsonify({
+                    'success': True,
+                    'message': 'Weekly export completed successfully',
+                    'timestamp': datetime.now(timezone.utc).isoformat()
+                }), 200
+            except Exception as e:
+                logger.error(f"Failed to trigger weekly export: {e}", "API", e)
+                return jsonify({'error': str(e)}), 500
+        
         @self.web_app.route('/api/boats/export-sessions', methods=['POST'])
         def export_boat_sessions():
             """Export all boat sessions from events (each trip as separate row)."""
@@ -1724,8 +1754,9 @@ class BoatTrackingSystem:
         health_thread.start()
         logger.info("Health monitoring started", "HEALTH")
         
-        # Start weekly log export scheduler
-        self._start_weekly_log_export()
+        # Start daily CSV accumulation and weekly export scheduler
+        self._start_daily_csv_accumulation()
+        self._start_weekly_export_system()
     
     def _perform_health_check(self):
         """Perform system health check."""
@@ -1759,53 +1790,159 @@ class BoatTrackingSystem:
         except Exception as e:
             logger.error(f"Health check error: {e}", "HEALTH", e)
     
-    def _start_weekly_log_export(self):
-        """Start weekly log export scheduler (runs every Sunday at 11:59 PM)."""
-        def weekly_export_scheduler():
+    def _start_daily_csv_accumulation(self):
+        """Start daily CSV accumulation system (runs every day at midnight)."""
+        def daily_accumulation_scheduler():
+            last_run_date = None
             while self.running:
                 try:
                     now = datetime.now(timezone.utc)
+                    current_date = now.date()
                     
-                    # Check if it's Sunday and time is close to midnight
-                    if now.weekday() == 6 and now.hour == 23 and now.minute >= 59:
-                        self._perform_weekly_log_export()
-                        # Wait for next week to avoid multiple exports
-                        time.sleep(3600)  # Wait 1 hour
+                    # Check if it's a new day and past midnight
+                    if current_date != last_run_date and now.hour == 0 and now.minute <= 5:
+                        self._perform_daily_csv_accumulation()
+                        last_run_date = current_date
+                        # Wait to avoid multiple runs
+                        time.sleep(360)  # Wait 6 minutes
                     else:
                         # Check every minute
                         time.sleep(60)
                         
                 except Exception as e:
-                    logger.error(f"Weekly log export scheduler failed: {e}", "EXPORT", e)
+                    logger.error(f"Daily CSV accumulation scheduler failed: {e}", "EXPORT", e)
+                    time.sleep(300)  # Wait 5 minutes on error
+        
+        accumulation_thread = threading.Thread(target=daily_accumulation_scheduler, daemon=True)
+        accumulation_thread.start()
+        logger.info("Daily CSV accumulation scheduler started", "EXPORT")
+    
+    def _start_weekly_export_system(self):
+        """Start weekly export system (runs every Sunday at 11:59 PM)."""
+        def weekly_export_scheduler():
+            last_export_week = None
+            while self.running:
+                try:
+                    now = datetime.now(timezone.utc)
+                    current_week = now.isocalendar()[1]  # Get ISO week number
+                    
+                    # Check if it's Sunday and time is close to midnight
+                    if now.weekday() == 6 and now.hour == 23 and now.minute >= 55:
+                        if current_week != last_export_week:
+                            self._perform_weekly_export()
+                            last_export_week = current_week
+                            # Wait to avoid multiple exports
+                            time.sleep(3600)  # Wait 1 hour
+                    else:
+                        # Check every minute
+                        time.sleep(60)
+                        
+                except Exception as e:
+                    logger.error(f"Weekly export scheduler failed: {e}", "EXPORT", e)
                     time.sleep(300)  # Wait 5 minutes on error
         
         export_thread = threading.Thread(target=weekly_export_scheduler, daemon=True)
         export_thread.start()
-        logger.info("Weekly log export scheduler started", "EXPORT")
+        logger.info("Weekly export system scheduler started", "EXPORT")
     
-    def _perform_weekly_log_export(self):
-        """Perform weekly log export."""
+    def _perform_daily_csv_accumulation(self):
+        """Accumulate daily data to CSV files."""
         try:
-            end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=7)
-            
-            # Create exports directory if it doesn't exist
-            import os
-            exports_dir = "data/exports"
-            os.makedirs(exports_dir, exist_ok=True)
-            
-            # Generate filename
-            filename = f"boat_tracking_weekly_logs_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.csv"
-            filepath = os.path.join(exports_dir, filename)
-            
-            # Export logs
-            log_data = self._export_logs_by_date_range(start_date, end_date, 'all')
-            
-            # Write to file
             import csv
+            now = datetime.now(timezone.utc)
+            yesterday = now - timedelta(days=1)
+            
+            # Create organized directory structure
+            daily_dir = f"data/csv_logs/daily/{yesterday.strftime('%Y')}/{yesterday.strftime('%m')}"
+            os.makedirs(daily_dir, exist_ok=True)
+            
+            # 1. Daily Boat Usage Report
+            self._accumulate_daily_boat_usage(daily_dir, yesterday)
+            
+            # 2. Daily System Logs
+            self._accumulate_daily_system_logs(daily_dir, yesterday)
+            
+            # 3. Daily Sessions
+            self._accumulate_daily_sessions(daily_dir, yesterday)
+            
+            logger.info(f"Daily CSV accumulation completed for {yesterday.strftime('%Y-%m-%d')}", "EXPORT")
+            logger.audit("DAILY_CSV_ACCUMULATION", "SYSTEM", f"Accumulated data for {yesterday.strftime('%Y-%m-%d')}")
+            
+        except Exception as e:
+            logger.error(f"Daily CSV accumulation failed: {e}", "EXPORT", e)
+    
+    def _accumulate_daily_boat_usage(self, daily_dir, date):
+        """Accumulate daily boat usage data."""
+        try:
+            import csv
+            start_dt = datetime.combine(date, datetime.min.time()).replace(tzinfo=timezone.utc)
+            end_dt = datetime.combine(date, datetime.max.time()).replace(tzinfo=timezone.utc)
+            
+            filename = f"boat_usage_{date.strftime('%Y%m%d')}.csv"
+            filepath = os.path.join(daily_dir, filename)
+            
+            boats = self.db.get_all_boats()
+            
             with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
-                writer.writerow(['timestamp', 'level', 'component', 'message'])
+                writer.writerow(['Sequence', 'Boat Name', 'Boat Class', 'Exit Time', 'Entry Time', 'Duration (min)'])
+                
+                sequence = 1
+                for boat in boats:
+                    beacon = self.db.get_beacon_by_boat(boat.id)
+                    if not beacon:
+                        continue
+                    
+                    with self.db.get_connection() as conn:
+                        cur = conn.cursor()
+                        cur.execute("""
+                            SELECT event_type, ts_utc FROM shed_events
+                            WHERE boat_id = ? AND ts_utc >= ? AND ts_utc <= ?
+                            ORDER BY ts_utc ASC
+                        """, (boat.id, start_dt.isoformat(), end_dt.isoformat()))
+                        events = cur.fetchall()
+                    
+                    opened = None
+                    for event_type, ts_utc_str in events:
+                        ts_utc = datetime.fromisoformat(ts_utc_str) if isinstance(ts_utc_str, str) else ts_utc_str
+                        if ts_utc.tzinfo is None:
+                            ts_utc = ts_utc.replace(tzinfo=timezone.utc)
+                        
+                        if event_type == 'OUT_SHED' and opened is None:
+                            opened = ts_utc
+                        elif event_type == 'IN_SHED' and opened is not None:
+                            duration = int((ts_utc - opened).total_seconds() / 60.0)
+                            writer.writerow([
+                                sequence,
+                                boat.name,
+                                boat.class_type,
+                                opened.strftime('%Y-%m-%d %H:%M:%S'),
+                                ts_utc.strftime('%Y-%m-%d %H:%M:%S'),
+                                duration
+                            ])
+                            sequence += 1
+                            opened = None
+            
+            logger.info(f"Daily boat usage accumulated: {filepath}", "EXPORT")
+            
+        except Exception as e:
+            logger.error(f"Failed to accumulate daily boat usage: {e}", "EXPORT", e)
+    
+    def _accumulate_daily_system_logs(self, daily_dir, date):
+        """Accumulate daily system logs."""
+        try:
+            import csv
+            start_dt = datetime.combine(date, datetime.min.time()).replace(tzinfo=timezone.utc)
+            end_dt = datetime.combine(date, datetime.max.time()).replace(tzinfo=timezone.utc)
+            
+            filename = f"system_logs_{date.strftime('%Y%m%d')}.csv"
+            filepath = os.path.join(daily_dir, filename)
+            
+            log_data = self._export_logs_by_date_range(start_dt, end_dt, 'all')
+            
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['Timestamp', 'Level', 'Component', 'Message'])
                 
                 for entry in log_data:
                     writer.writerow([
@@ -1815,11 +1952,197 @@ class BoatTrackingSystem:
                         entry.get('message', '')
                     ])
             
-            logger.info(f"Weekly log export completed: {filepath}", "EXPORT")
-            logger.audit("WEEKLY_LOG_EXPORT", "SYSTEM", f"Exported logs from {start_date} to {end_date}")
+            logger.info(f"Daily system logs accumulated: {filepath}", "EXPORT")
             
         except Exception as e:
-            logger.error(f"Weekly log export failed: {e}", "EXPORT", e)
+            logger.error(f"Failed to accumulate daily system logs: {e}", "EXPORT", e)
+    
+    def _accumulate_daily_sessions(self, daily_dir, date):
+        """Accumulate daily boat sessions."""
+        try:
+            import csv
+            start_dt = datetime.combine(date, datetime.min.time()).replace(tzinfo=timezone.utc)
+            end_dt = datetime.combine(date, datetime.max.time()).replace(tzinfo=timezone.utc)
+            
+            filename = f"boat_sessions_{date.strftime('%Y%m%d')}.csv"
+            filepath = os.path.join(daily_dir, filename)
+            
+            boats = self.db.get_all_boats()
+            
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['Boat ID', 'Boat Name', 'Boat Class', 'Session Start', 'Session End', 'Duration (min)', 'Status'])
+                
+                for boat in boats:
+                    with self.db.get_connection() as conn:
+                        cur = conn.cursor()
+                        cur.execute("""
+                            SELECT event_type, ts_utc FROM shed_events
+                            WHERE boat_id = ? AND ts_utc >= ? AND ts_utc <= ?
+                            ORDER BY ts_utc ASC
+                        """, (boat.id, start_dt.isoformat(), end_dt.isoformat()))
+                        events = cur.fetchall()
+                    
+                    opened = None
+                    for event_type, ts_utc_str in events:
+                        ts_utc = datetime.fromisoformat(ts_utc_str) if isinstance(ts_utc_str, str) else ts_utc_str
+                        if ts_utc.tzinfo is None:
+                            ts_utc = ts_utc.replace(tzinfo=timezone.utc)
+                        
+                        if event_type == 'OUT_SHED' and opened is None:
+                            opened = ts_utc
+                        elif event_type == 'IN_SHED' and opened is not None:
+                            duration = int((ts_utc - opened).total_seconds() / 60.0)
+                            writer.writerow([
+                                boat.id,
+                                boat.name,
+                                boat.class_type,
+                                opened.strftime('%Y-%m-%d %H:%M:%S'),
+                                ts_utc.strftime('%Y-%m-%d %H:%M:%S'),
+                                duration,
+                                'Completed'
+                            ])
+                            opened = None
+            
+            logger.info(f"Daily sessions accumulated: {filepath}", "EXPORT")
+            
+        except Exception as e:
+            logger.error(f"Failed to accumulate daily sessions: {e}", "EXPORT", e)
+    
+    def _perform_weekly_export(self):
+        """Perform comprehensive weekly export with all accumulated data."""
+        try:
+            import csv
+            import shutil
+            now = datetime.now(timezone.utc)
+            week_end = now.date()
+            week_start = week_end - timedelta(days=7)
+            
+            # Create weekly exports directory with proper naming
+            week_label = f"Week_{week_start.strftime('%Y%m%d')}_to_{week_end.strftime('%Y%m%d')}"
+            weekly_dir = f"data/csv_logs/weekly_exports/{week_start.strftime('%Y')}/{week_label}"
+            os.makedirs(weekly_dir, exist_ok=True)
+            
+            logger.info(f"Starting weekly export for {week_label}", "EXPORT")
+            
+            # 1. Copy all daily files from the past week
+            daily_base_dir = "data/csv_logs/daily"
+            current_date = week_start
+            
+            while current_date <= week_end:
+                daily_dir = f"{daily_base_dir}/{current_date.strftime('%Y')}/{current_date.strftime('%m')}"
+                if os.path.exists(daily_dir):
+                    # Copy all daily files to weekly export
+                    for filename in os.listdir(daily_dir):
+                        if filename.endswith('.csv') and current_date.strftime('%Y%m%d') in filename:
+                            src = os.path.join(daily_dir, filename)
+                            dst = os.path.join(weekly_dir, filename)
+                            shutil.copy2(src, dst)
+                            logger.info(f"Copied daily file: {filename}", "EXPORT")
+                
+                current_date += timedelta(days=1)
+            
+            # 2. Create consolidated weekly summary
+            self._create_weekly_summary(weekly_dir, week_start, week_end)
+            
+            # 3. Create weekly boat water time report
+            self._create_weekly_water_time_report(weekly_dir, week_start, week_end)
+            
+            logger.info(f"Weekly export completed: {weekly_dir}", "EXPORT")
+            logger.audit("WEEKLY_EXPORT", "SYSTEM", f"Exported data from {week_start} to {week_end} to {weekly_dir}")
+            
+        except Exception as e:
+            logger.error(f"Weekly export failed: {e}", "EXPORT", e)
+    
+    def _create_weekly_summary(self, weekly_dir, week_start, week_end):
+        """Create consolidated weekly summary report."""
+        try:
+            import csv
+            start_dt = datetime.combine(week_start, datetime.min.time()).replace(tzinfo=timezone.utc)
+            end_dt = datetime.combine(week_end, datetime.max.time()).replace(tzinfo=timezone.utc)
+            
+            filename = f"WEEKLY_SUMMARY_{week_start.strftime('%Y%m%d')}_to_{week_end.strftime('%Y%m%d')}.csv"
+            filepath = os.path.join(weekly_dir, filename)
+            
+            boats = self.db.get_all_boats()
+            
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['Boat Name', 'Boat Class', 'Total Trips', 'Total Minutes', 'Avg Duration (min)', 'Max Duration (min)', 'Status'])
+                
+                for boat in boats:
+                    with self.db.get_connection() as conn:
+                        cur = conn.cursor()
+                        cur.execute("""
+                            SELECT event_type, ts_utc FROM shed_events
+                            WHERE boat_id = ? AND ts_utc >= ? AND ts_utc <= ?
+                            ORDER BY ts_utc ASC
+                        """, (boat.id, start_dt.isoformat(), end_dt.isoformat()))
+                        events = cur.fetchall()
+                    
+                    trips = 0
+                    total_minutes = 0
+                    max_duration = 0
+                    opened = None
+                    
+                    for event_type, ts_utc_str in events:
+                        ts_utc = datetime.fromisoformat(ts_utc_str) if isinstance(ts_utc_str, str) else ts_utc_str
+                        if ts_utc.tzinfo is None:
+                            ts_utc = ts_utc.replace(tzinfo=timezone.utc)
+                        
+                        if event_type == 'OUT_SHED' and opened is None:
+                            opened = ts_utc
+                        elif event_type == 'IN_SHED' and opened is not None:
+                            duration = int((ts_utc - opened).total_seconds() / 60.0)
+                            trips += 1
+                            total_minutes += duration
+                            max_duration = max(max_duration, duration)
+                            opened = None
+                    
+                    avg_duration = int(total_minutes / trips) if trips > 0 else 0
+                    
+                    writer.writerow([
+                        boat.name,
+                        boat.class_type,
+                        trips,
+                        total_minutes,
+                        avg_duration,
+                        max_duration,
+                        boat.op_status
+                    ])
+            
+            logger.info(f"Weekly summary created: {filepath}", "EXPORT")
+            
+        except Exception as e:
+            logger.error(f"Failed to create weekly summary: {e}", "EXPORT", e)
+    
+    def _create_weekly_water_time_report(self, weekly_dir, week_start, week_end):
+        """Create weekly water time report."""
+        try:
+            import csv
+            start_dt = datetime.combine(week_start, datetime.min.time()).replace(tzinfo=timezone.utc)
+            end_dt = datetime.combine(week_end, datetime.max.time()).replace(tzinfo=timezone.utc)
+            
+            filename = f"WEEKLY_WATER_TIME_{week_start.strftime('%Y%m%d')}_to_{week_end.strftime('%Y%m%d')}.csv"
+            filepath = os.path.join(weekly_dir, filename)
+            
+            water_time_data = self._export_boat_water_time_data(start_dt, end_dt, None)
+            
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                
+                # Write headers
+                if water_time_data and len(water_time_data) > 0:
+                    writer.writerow(water_time_data[0].keys())
+                    
+                    # Write data
+                    for row in water_time_data:
+                        writer.writerow(row.values())
+            
+            logger.info(f"Weekly water time report created: {filepath}", "EXPORT")
+            
+        except Exception as e:
+            logger.error(f"Failed to create weekly water time report: {e}", "EXPORT", e)
     
     def stop(self):
         """Stop the entire system."""
