@@ -9,8 +9,8 @@ Enable HTTPS + encryption in one step:
 ```
 
 That's it! The system will now use:
-- ✅ **HTTPS** for secure web dashboard access
-- ✅ **Database encryption** (basic protection)
+-  **HTTPS** for secure web dashboard access
+-  **Database encryption** (basic protection)
 
 ---
 
@@ -20,11 +20,11 @@ That's it! The system will now use:
 
 **Before:**
 - URL: `http://192.168.1.100:5000` (unencrypted)
-- ⚠️ Data visible on network
+-  Data visible on network
 
 **After:**
 - URL: `https://192.168.1.100:5000` (encrypted)
-- ✅ All web traffic encrypted with SSL/TLS
+-  All web traffic encrypted with SSL/TLS
 
 **Browser Warning:** You'll see a security warning because the certificate is self-signed. This is **normal and safe** for local network use. Click "Advanced" → "Proceed" to continue.
 
@@ -34,11 +34,11 @@ That's it! The system will now use:
 
 **Before:**
 - Database file: `data/boat_tracking.db` (readable by anyone)
-- ⚠️ Anyone with file access can read data
+-  Anyone with file access can read data
 
 **After:**
 - Database file: Encrypted with password key
-- ✅ Requires encryption key to access data
+-  Requires encryption key to access data
 - Key stored in `.env` file (keep this secure!)
 
 ---
@@ -88,11 +88,11 @@ The system will automatically use SQLCipher if installed (no code changes needed
 
 ## Security Checklist
 
-- ✅ HTTPS enabled (`ssl/cert.pem` exists)
-- ✅ Database encryption key set (`.env` file)
-- ✅ `.env` file excluded from git (in `.gitignore`)
-- ✅ Admin password changed from default
-- ✅ Firewall configured (only ports 5000/8000 open)
+-  HTTPS enabled (`ssl/cert.pem` exists)
+-  Database encryption key set (`.env` file)
+-  `.env` file excluded from git (in `.gitignore`)
+-  Admin password changed from default
+-  Firewall configured (only ports 5000/8000 open)
 
 ---
 
@@ -136,17 +136,17 @@ ls -la ssl/
 ## Best Practices
 
 ### For Local Network Use (Current Setup)
-- ✅ Self-signed certificate is fine
-- ✅ Basic encryption sufficient
-- ✅ Change admin password
-- ✅ Restrict network access (firewall)
+-  Self-signed certificate is fine
+-  Basic encryption sufficient
+-  Change admin password
+-  Restrict network access (firewall)
 
 ### For Internet-Accessible Deployment
-- ⚠️ Use proper certificate (Let's Encrypt)
-- ⚠️ Install SQLCipher for stronger encryption
-- ⚠️ Add proper user authentication
-- ⚠️ Enable audit logging
-- ⚠️ Regular security updates
+-  Use proper certificate (Let's Encrypt)
+-  Install SQLCipher for stronger encryption
+-  Add proper user authentication
+-  Enable audit logging
+-  Regular security updates
 
 ---
 
@@ -154,12 +154,12 @@ ls -la ssl/
 
 | Feature | Status | Strength |
 |---------|--------|----------|
-| HTTPS/TLS | ✅ Enabled | Self-signed cert (local network) |
-| Database Encryption | ✅ Enabled | Basic (upgradeable to SQLCipher) |
-| Admin Authentication | ✅ Password protected | Hardcoded (changeable) |
-| API Access Control | ⚠️ Open on LAN | Firewall recommended |
-| Audit Logging | ✅ All admin actions | Stored in logs/ |
-| No Personal Data | ✅ Privacy by design | Only boat/beacon IDs |
+| HTTPS/TLS |  Enabled | Self-signed cert (local network) |
+| Database Encryption |  Enabled | Basic (upgradeable to SQLCipher) |
+| Admin Authentication |  Password protected | Hardcoded (changeable) |
+| API Access Control |  Open on LAN | Firewall recommended |
+| Audit Logging |  All admin actions | Stored in logs/ |
+| No Personal Data |  Privacy by design | Only boat/beacon IDs |
 
 ---
 

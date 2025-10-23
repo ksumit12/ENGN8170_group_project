@@ -79,7 +79,7 @@ def live_signal_meter(db: DatabaseManager, mac: str, duration_s: float = 10.0):
 def analyze_samples(samples, position_name: str):
     """Analyze samples and compute statistics"""
     if not samples:
-        print(f"  ⚠ WARNING: No samples collected for {position_name}")
+        print(f"   WARNING: No samples collected for {position_name}")
         return None
     
     # Separate left and right
@@ -96,7 +96,7 @@ def analyze_samples(samples, position_name: str):
             right_vals.append(rssi_val)
     
     if not left_vals or not right_vals:
-        print(f"  ⚠ WARNING: Missing data from one scanner for {position_name}")
+        print(f"   WARNING: Missing data from one scanner for {position_name}")
         print(f"     Left samples: {len(left_vals)}, Right samples: {len(right_vals)}")
         return None
     
@@ -127,7 +127,7 @@ def analyze_samples(samples, position_name: str):
         'raw_right': right_vals
     }
     
-    print(f"  ✓ {position_name} Analysis:")
+    print(f"   {position_name} Analysis:")
     print(f"     Left:  median={med_left:5.1f} dBm, avg={avg_left:5.1f} dBm, std={std_left:4.1f} dB (n={len(left_vals)})")
     print(f"     Right: median={med_right:5.1f} dBm, avg={avg_right:5.1f} dBm, std={std_right:4.1f} dB (n={len(right_vals)})")
     print(f"     Gap: {gap:.1f} dB, Dominant: {dominant}")
@@ -139,7 +139,7 @@ def calculate_offsets(center_stats, left_stats, right_stats):
     """Calculate RSSI offsets to equalize signals"""
     
     if not center_stats:
-        print("\n⚠ WARNING: Cannot calculate offsets without center calibration")
+        print("\n WARNING: Cannot calculate offsets without center calibration")
         return None
     
     # Center bias: difference between left and right at center
@@ -151,7 +151,7 @@ def calculate_offsets(center_stats, left_stats, right_stats):
     offset_left = -center_bias / 2.0
     offset_right = +center_bias / 2.0
     
-    print("\n📊 OFFSET CALCULATION:")
+    print("\n OFFSET CALCULATION:")
     print(f"  Center bias (L-R): {center_bias:+.2f} dB")
     print(f"  Offset for LEFT:   {offset_left:+.2f} dB")
     print(f"  Offset for RIGHT:  {offset_right:+.2f} dB")
@@ -211,14 +211,14 @@ def main():
         # Load saved calibration
         calib_file = os.path.join(args.outdir, 'latest', 'door_lr_calib.json')
         if not os.path.exists(calib_file):
-            print(f"❌ No saved calibration found at: {calib_file}")
+            print(f" No saved calibration found at: {calib_file}")
             print("Run calibration first without --test-live flag")
             return
         
         with open(calib_file, 'r') as f:
             calib = json.load(f)
         
-        print("✓ Loaded calibration:")
+        print(" Loaded calibration:")
         print(f"  Created: {calib.get('created_at', 'unknown')}")
         print(f"  Offsets: L={calib['rssi_offsets']['gate-left']:+.2f} dB, R={calib['rssi_offsets']['gate-right']:+.2f} dB")
         print(f"  Center bias: {calib.get('center_bias_db', 0):+.2f} dB")
@@ -253,7 +253,7 @@ def main():
                 input("Press Enter to START monitoring...")
                 
                 # Monitor for 15 seconds
-                print("\n⏱ Monitoring for 15 seconds...\n")
+                print("\n Monitoring for 15 seconds...\n")
                 samples = []
                 t_start = time.time()
                 
@@ -281,7 +281,7 @@ def main():
                     
                     time.sleep(0.1)
                 
-                print(f"\n\n✓ Captured {len(samples)} samples")
+                print(f"\n\n Captured {len(samples)} samples")
                 
                 # Analyze pattern
                 if samples:
@@ -316,11 +316,11 @@ def main():
                             # Expected: RIGHT first, then LEFT stronger
                             correct = (lag < 0 and left_avg > right_avg) or (lag > 0 and lag < 1.0 and left_avg > right_avg)
                         
-                        result = "✅ CORRECT" if correct else "❌ INCORRECT"
+                        result = " CORRECT" if correct else " INCORRECT"
                         print(f"\n  Expected: {direction}")
                         print(f"  Detection: {result}")
                     else:
-                        print("  ⚠ Incomplete data - both scanners needed")
+                        print("   Incomplete data - both scanners needed")
                 
         except KeyboardInterrupt:
             print("\n\nLive testing stopped.")
@@ -382,7 +382,7 @@ def main():
         ]
         
         for height_name, height_desc in heights:
-            print(f"\n📏 HEIGHT: {height_name}")
+            print(f"\n HEIGHT: {height_name}")
             print(f"Place beacon at CENTER at {height_desc}")
             input("Press Enter to start sampling...")
             
@@ -412,7 +412,7 @@ def main():
                 'samples_right': sum(s['samples_right'] for s in center_all_heights),
             }
             
-            print(f"\n✓ CENTER (aggregated across {len(center_all_heights)} heights):")
+            print(f"\n CENTER (aggregated across {len(center_all_heights)} heights):")
             print(f"   Median Left: {center_stats['median_left']:.1f} dBm")
             print(f"   Median Right: {center_stats['median_right']:.1f} dBm")
             print(f"   Gap: {center_stats['gap']:.1f} dB")
@@ -424,7 +424,7 @@ def main():
         center_stats = analyze_samples(center_samples, "CENTER")
     
     if not center_stats:
-        print("\n❌ CENTER calibration failed! Cannot proceed without center data.")
+        print("\n CENTER calibration failed! Cannot proceed without center data.")
         return
     
     # ===== STEP 2: LEFT CALIBRATION =====
@@ -438,7 +438,7 @@ def main():
     
     if args.heights:
         for height_name, height_desc in heights:
-            print(f"\n📏 HEIGHT: {height_name}")
+            print(f"\n HEIGHT: {height_name}")
             print(f"Place beacon at LEFT at {height_desc}")
             input("Press Enter to start sampling...")
             
@@ -466,7 +466,7 @@ def main():
                 'samples_right': sum(s['samples_right'] for s in left_all_heights),
             }
             
-            print(f"\n✓ LEFT (aggregated across {len(left_all_heights)} heights):")
+            print(f"\n LEFT (aggregated across {len(left_all_heights)} heights):")
             print(f"   Median Left: {left_stats['median_left']:.1f} dBm")
             print(f"   Median Right: {left_stats['median_right']:.1f} dBm")
             print(f"   Gap: {left_stats['gap']:.1f} dB")
@@ -488,7 +488,7 @@ def main():
     
     if args.heights:
         for height_name, height_desc in heights:
-            print(f"\n📏 HEIGHT: {height_name}")
+            print(f"\n HEIGHT: {height_name}")
             print(f"Place beacon at RIGHT at {height_desc}")
             input("Press Enter to start sampling...")
             
@@ -516,7 +516,7 @@ def main():
                 'samples_right': sum(s['samples_right'] for s in right_all_heights),
             }
             
-            print(f"\n✓ RIGHT (aggregated across {len(right_all_heights)} heights):")
+            print(f"\n RIGHT (aggregated across {len(right_all_heights)} heights):")
             print(f"   Median Left: {right_stats['median_left']:.1f} dBm")
             print(f"   Median Right: {right_stats['median_right']:.1f} dBm")
             print(f"   Gap: {right_stats['gap']:.1f} dB")
@@ -535,7 +535,7 @@ def main():
     offsets_data = calculate_offsets(center_stats, left_stats, right_stats)
     
     if not offsets_data:
-        print("\n❌ Failed to calculate offsets!")
+        print("\n Failed to calculate offsets!")
         return
     
     # ===== SAVE CALIBRATION =====
@@ -559,7 +559,7 @@ def main():
     with open(latest_file, 'w') as f:
         json.dump(calib_data, f, indent=2)
     
-    print(f"\n✅ Calibration saved to:")
+    print(f"\n Calibration saved to:")
     print(f"   Session: {calib_file}")
     print(f"   Latest:  {latest_file}")
     
@@ -634,7 +634,7 @@ def main():
     plt.savefig(os.path.join(plots_dir, 'rssi_distributions.png'), dpi=140)
     plt.close()
 
-    print(f"\n📊 Plots saved to: {plots_dir}/")
+    print(f"\n Plots saved to: {plots_dir}/")
     
     # ===== VALIDATION & RECOMMENDATIONS =====
     print("\n" + "="*70)
@@ -646,33 +646,33 @@ def main():
     
     # Check center calibration quality
     if center_stats['gap'] > 3.0:
-        issues.append(f"⚠ Center gap is {center_stats['gap']:.1f} dB (should be <3 dB)")
+        issues.append(f" Center gap is {center_stats['gap']:.1f} dB (should be <3 dB)")
         recommendations.append("   → Reposition beacon closer to true center")
         recommendations.append("   → Check for physical obstacles or reflections")
     else:
-        print(f"✓ Center gap: {center_stats['gap']:.1f} dB (Good)")
+        print(f" Center gap: {center_stats['gap']:.1f} dB (Good)")
     
     # Check left/right separation
     if left_stats and left_stats['gap'] < 6.0:
-        issues.append(f"⚠ Left position gap is {left_stats['gap']:.1f} dB (should be ≥6 dB)")
+        issues.append(f" Left position gap is {left_stats['gap']:.1f} dB (should be ≥6 dB)")
         recommendations.append("   → Move beacon closer to left scanner")
     elif left_stats:
-        print(f"✓ Left separation: {left_stats['gap']:.1f} dB (Good)")
+        print(f" Left separation: {left_stats['gap']:.1f} dB (Good)")
     
     if right_stats and right_stats['gap'] < 6.0:
-        issues.append(f"⚠ Right position gap is {right_stats['gap']:.1f} dB (should be ≥6 dB)")
+        issues.append(f" Right position gap is {right_stats['gap']:.1f} dB (should be ≥6 dB)")
         recommendations.append("   → Move beacon closer to right scanner")
     elif right_stats:
-        print(f"✓ Right separation: {right_stats['gap']:.1f} dB (Good)")
+        print(f" Right separation: {right_stats['gap']:.1f} dB (Good)")
     
     # Check sample counts
     min_samples = 20
     if center_stats['samples_left'] < min_samples or center_stats['samples_right'] < min_samples:
-        issues.append(f"⚠ Low sample count at center (L:{center_stats['samples_left']}, R:{center_stats['samples_right']})")
+        issues.append(f" Low sample count at center (L:{center_stats['samples_left']}, R:{center_stats['samples_right']})")
         recommendations.append("   → Increase --duration or check scanner connectivity")
     
     if issues:
-        print("\n⚠ ISSUES DETECTED:")
+        print("\n ISSUES DETECTED:")
         for issue in issues:
             print(issue)
         print("\nRECOMMENDATIONS:")
@@ -680,7 +680,7 @@ def main():
             print(rec)
         print("\nConsider re-running calibration with adjustments.")
     else:
-        print("\n✅ Calibration quality is GOOD!")
+        print("\n Calibration quality is GOOD!")
     
     # ===== SUMMARY =====
     print("\n" + "="*70)
@@ -702,12 +702,12 @@ def main():
         if 'right_dominance' in t:
             print(f"  RIGHT dominance:     {t['right_dominance']:.1f} dB")
     
-    print(f"\n📁 Calibration files:")
+    print(f"\n Calibration files:")
     print(f"   {latest_file}")
     print(f"   {calib_file}")
     
     print("\n" + "="*70)
-    print("✅ CALIBRATION COMPLETE!")
+    print(" CALIBRATION COMPLETE!")
     print("="*70)
     print("\nNext steps:")
     print("1. Review plots in: " + plots_dir + "/")

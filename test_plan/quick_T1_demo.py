@@ -252,11 +252,12 @@ def main():
     print(f"Failed: {total_trials - passed_trials}")
     print(f"Success rate: {success_rate:.1%}")
     print(f"Results saved to: {out_dir}")
-    print(f"\n✅ READY FOR YOUR DEADLINE! Enhanced plots generated successfully.")
+    print(f"\n READY FOR YOUR DEADLINE! Enhanced plots generated successfully.")
 
 
 if __name__ == "__main__":
     main()
+
 
 
 

@@ -104,8 +104,8 @@ class FSMStateMonitor:
     
     def monitor_states(self, duration_seconds: int = 300, interval_seconds: float = 2.0):
         """Monitor FSM states for specified duration."""
-        print(f"🔍 Starting FSM state monitoring for {duration_seconds} seconds...")
-        print(f"📊 Monitoring interval: {interval_seconds} seconds")
+        print(f" Starting FSM state monitoring for {duration_seconds} seconds...")
+        print(f" Monitoring interval: {interval_seconds} seconds")
         
         start_time = time.time()
         end_time = start_time + duration_seconds
@@ -131,10 +131,10 @@ class FSMStateMonitor:
             
             # Print current status
             boats_in_harbor = api_states.get('boats_in_harbor', [])
-            print(f"⏰ {datetime.now().strftime('%H:%M:%S')} - Boats in harbor: {len(boats_in_harbor)}")
+            print(f" {datetime.now().strftime('%H:%M:%S')} - Boats in harbor: {len(boats_in_harbor)}")
             
             for boat in boats_in_harbor:
-                print(f"  🚤 {boat['boat_name']} ({boat['boat_id']}) - RSSI: {boat['last_rssi']} dBm")
+                print(f"   {boat['boat_name']} ({boat['boat_id']}) - RSSI: {boat['last_rssi']} dBm")
             
             # Check for state changes
             if len(self.state_history) > 1:
@@ -142,7 +142,7 @@ class FSMStateMonitor:
             
             time.sleep(interval_seconds)
         
-        print("✅ Monitoring completed")
+        print(" Monitoring completed")
     
     def _detect_state_changes(self):
         """Detect and report state changes."""
@@ -162,24 +162,24 @@ class FSMStateMonitor:
                 
                 # Check for state changes
                 if current_state["current_state"] != prev_state["current_state"]:
-                    print(f"🔄 STATE CHANGE: {beacon_id}")
-                    print(f"  📊 {prev_state['current_state']} → {current_state['current_state']}")
-                    print(f"  ⏰ Time: {current['timestamp']}")
+                    print(f" STATE CHANGE: {beacon_id}")
+                    print(f"   {prev_state['current_state']}  {current_state['current_state']}")
+                    print(f"   Time: {current['timestamp']}")
                 
                 # Check for timestamp updates
                 if current_state["entry_timestamp"] != prev_state["entry_timestamp"]:
-                    print(f"📝 ENTRY TIMESTAMP UPDATE: {beacon_id}")
-                    print(f"  ⏰ Entry time: {current_state['entry_timestamp']}")
+                    print(f" ENTRY TIMESTAMP UPDATE: {beacon_id}")
+                    print(f"   Entry time: {current_state['entry_timestamp']}")
                 
                 if current_state["exit_timestamp"] != prev_state["exit_timestamp"]:
-                    print(f"📝 EXIT TIMESTAMP UPDATE: {beacon_id}")
-                    print(f"  ⏰ Exit time: {current_state['exit_timestamp']}")
+                    print(f" EXIT TIMESTAMP UPDATE: {beacon_id}")
+                    print(f"   Exit time: {current_state['exit_timestamp']}")
     
     def generate_report(self, output_dir: str):
         """Generate comprehensive monitoring report."""
         os.makedirs(output_dir, exist_ok=True)
         
-        print(f"📊 Generating monitoring report in {output_dir}")
+        print(f" Generating monitoring report in {output_dir}")
         
         # Generate CSV report
         self._generate_csv_report(output_dir)
@@ -190,7 +190,7 @@ class FSMStateMonitor:
         # Generate summary report
         self._generate_summary_report(output_dir)
         
-        print(f"✅ Report generated successfully")
+        print(f" Report generated successfully")
     
     def _generate_csv_report(self, output_dir: str):
         """Generate CSV report of state changes."""
@@ -216,12 +216,12 @@ class FSMStateMonitor:
                     "N/A"   # Would need more complex logic to track updates
                 ])
         
-        print(f"📄 CSV report: {csv_file}")
+        print(f" CSV report: {csv_file}")
     
     def _generate_plots(self, output_dir: str):
         """Generate monitoring plots."""
         if not self.state_history:
-            print("⚠️  No data to plot")
+            print("  No data to plot")
             return
         
         # Plot 1: Boats in harbor over time
@@ -241,7 +241,7 @@ class FSMStateMonitor:
         plt.savefig(plot_file, dpi=150, bbox_inches='tight')
         plt.close()
         
-        print(f"📈 Timeline plot: {plot_file}")
+        print(f" Timeline plot: {plot_file}")
     
     def _generate_summary_report(self, output_dir: str):
         """Generate summary report."""
@@ -298,12 +298,12 @@ class FSMStateMonitor:
                     f.write(f"  - Duration: {trip['duration_minutes']} minutes\n\n")
             
             f.write("## Conclusion\n")
-            f.write("✅ **FSM MONITORING COMPLETED**: System state monitoring finished successfully.\n")
+            f.write(" **FSM MONITORING COMPLETED**: System state monitoring finished successfully.\n")
             f.write("- All state changes were tracked\n")
             f.write("- Timestamp updates were monitored\n")
             f.write("- Database consistency was verified\n")
         
-        print(f"📋 Summary report: {report_file}")
+        print(f" Summary report: {report_file}")
 
 
 def main():
@@ -326,7 +326,7 @@ def main():
         monitor.generate_report(output_dir)
         
     except KeyboardInterrupt:
-        print("\n🛑 Monitoring stopped by user.")
+        print("\n Monitoring stopped by user.")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = f"{args.output_dir}_{timestamp}"
         monitor.generate_report(output_dir)
@@ -334,6 +334,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
 
 
 

@@ -1,0 +1,46 @@
+{
+  "database_path": "data/boat_tracking.db",
+  "api_host": "0.0.0.0",
+  "api_port": 5000,
+  "web_host": "0.0.0.0",
+  "web_port": 5001,
+  "scanners": [
+    {
+      "scanner_id": "door-left",
+      "adapter": "hci1",
+      "scan_interval": 1.0,
+      "scan_window": 0.5,
+      "passive": false
+    },
+    {
+      "scanner_id": "door-right", 
+      "adapter": "hci0",
+      "scan_interval": 1.0,
+      "scan_window": 0.5,
+      "passive": false
+    }
+  ],
+  "wifi_emergency_notifications": {
+    "enabled": true,
+    "closing_time": "18:00",
+    "check_interval": 60,
+    "escalation_enabled": true,
+    "vapid_private_key": "your_vapid_private_key",
+    "vapid_public_key": "your_vapid_public_key",
+    "wifi_network": {
+      "ssid": "Red Shed WiFi",
+      "range": "192.168.1.0/24"
+    }
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/boat_tracking.log",
+    "max_size": "10MB",
+    "backup_count": 5
+  },
+  "security": {
+    "enable_https": false,
+    "enable_auth": false,
+    "enable_encryption": false
+  }
+}

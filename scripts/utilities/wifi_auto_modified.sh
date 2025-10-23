@@ -155,7 +155,7 @@ done
 set_dns_for_ssid "$SSID"
 
 echo
-say "Connected ✅"
+say "Connected "
 echo "  SSID : $SSID"
 echo "  IPv4 : $IPV4"
 echo "  DNS  :"

@@ -241,7 +241,7 @@ def main() -> None:
                             ok = True
                         if ev.startswith("SEQ_ENTRY") and (st in FSM_INSIDE):
                             ok = True
-                        verdict = "✓" if ok else "?"
+                        verdict = "" if ok else "?"
                         label = registered.get(bid, {}).get("assigned_boat_name") or bid
                         print(f"  {ts.isoformat()} {ev} -> FSM={st} [{verdict}] ({label})")
 

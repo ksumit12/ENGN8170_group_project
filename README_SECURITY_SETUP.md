@@ -6,23 +6,23 @@ This branch includes **HTTPS + Database Encryption** for secure boat tracking.
 
 ---
 
-## 📋 What's New in This Branch
+##  What's New in This Branch
 
-### ✅ Security Features Added
+###  Security Features Added
 
 1. **HTTPS Support** - Encrypted web traffic
 2. **Database Encryption** - Encrypted data at rest
 3. **One-Command Setup** - Enable security in 30 seconds
 4. **Zero Breaking Changes** - Existing code works as-is
 
-### 📊 Requirements Compliance
+###  Requirements Compliance
 
 **Before Security Update:** 14/17 requirements (82.4%)  
-**After Security Update:** 15/15 software requirements (100% ✅)
+**After Security Update:** 15/15 software requirements (100% )
 
 ---
 
-## 🚀 Quick Start (3 Steps)
+##  Quick Start (3 Steps)
 
 ### Step 1: Pull Latest Code (On RPi)
 
@@ -38,10 +38,10 @@ git pull origin working-single-scanner
 ```
 
 This will:
-- ✅ Generate SSL certificate for HTTPS
-- ✅ Set up database encryption key
-- ✅ Install security dependencies (pyopenssl)
-- ⏱️ Takes ~30 seconds
+-  Generate SSL certificate for HTTPS
+-  Set up database encryption key
+-  Install security dependencies (pyopenssl)
+-  Takes ~30 seconds
 
 ### Step 3: Start System
 
@@ -53,7 +53,7 @@ This will:
 
 ---
 
-## 🔐 Accessing the Secure Dashboard
+##  Accessing the Secure Dashboard
 
 ### Before Security:
 ```
@@ -65,7 +65,7 @@ http://172.20.10.12:5000
 https://172.20.10.12:5000
 ```
 
-### ⚠️ Browser Security Warning
+###  Browser Security Warning
 
 You'll see this warning:
 ```
@@ -80,21 +80,21 @@ You'll see this warning:
 **To proceed:**
 1. Click **"Advanced"** or **"Show Details"**
 2. Click **"Proceed to 172.20.10.12"** or **"Accept Risk and Continue"**
-3. Dashboard loads normally ✅
+3. Dashboard loads normally 
 
 ---
 
-## 📁 What Gets Created
+##  What Gets Created
 
 After running `./enable_security.sh`:
 
 ```
 grp_project/
-├── ssl/
-│   ├── cert.pem          # SSL certificate (365 days valid)
-│   └── key.pem           # Private key
-├── .env                   # Encryption key (keep secure!)
-└── .venv/                # Updated with security packages
+ ssl/
+    cert.pem          # SSL certificate (365 days valid)
+    key.pem           # Private key
+ .env                   # Encryption key (keep secure!)
+ .venv/                # Updated with security packages
 ```
 
 **Important Files:**
@@ -102,11 +102,11 @@ grp_project/
 - `ssl/key.pem` - Private key for HTTPS
 - `.env` - Database encryption key
 
-**⚠️ These files are NOT in git** (automatically ignored for security)
+** These files are NOT in git** (automatically ignored for security)
 
 ---
 
-## 🛠️ Manual Setup (If Needed)
+##  Manual Setup (If Needed)
 
 ### Generate SSL Certificate Only
 
@@ -139,7 +139,7 @@ pip install pyopenssl==24.0.0
 
 ---
 
-## 🔧 System Behavior
+##  System Behavior
 
 ### With Security Enabled (Certificates Exist)
 
@@ -149,10 +149,10 @@ Dashboard: https://172.20.10.12:5000
 ```
 
 **Features:**
-- ✅ All web traffic encrypted (HTTPS/TLS)
-- ✅ Database encrypted with password
-- ✅ Admin login required
-- ✅ Secure for local network use
+-  All web traffic encrypted (HTTPS/TLS)
+-  Database encrypted with password
+-  Admin login required
+-  Secure for local network use
 
 ### Without Security (No Certificates)
 
@@ -163,13 +163,13 @@ Dashboard: http://172.20.10.12:5000
 ```
 
 **Features:**
-- ⚠️ Web traffic unencrypted (HTTP)
-- ⚠️ Database not encrypted
-- ✅ System still works normally
+-  Web traffic unencrypted (HTTP)
+-  Database not encrypted
+-  System still works normally
 
 ---
 
-## 📚 Detailed Documentation
+##  Detailed Documentation
 
 For more details, see:
 - **[SECURITY.md](SECURITY.md)** - Complete security guide
@@ -177,7 +177,7 @@ For more details, see:
 
 ---
 
-## 🔄 Upgrading to Stronger Encryption (Optional)
+##  Upgrading to Stronger Encryption (Optional)
 
 For production use with sensitive data:
 
@@ -196,7 +196,7 @@ pip install sqlcipher3
 
 ---
 
-## ✅ Security Checklist
+##  Security Checklist
 
 After running `./enable_security.sh`, verify:
 
@@ -217,7 +217,7 @@ pip list | grep -E 'pyopenssl|sqlcipher'
 
 ---
 
-## 🚨 Troubleshooting
+##  Troubleshooting
 
 ### Problem: "Permission denied" when running scripts
 
@@ -273,27 +273,27 @@ python3 setup_new_system.py
 
 ---
 
-## 🔐 Security Best Practices
+##  Security Best Practices
 
-### ✅ Good for Local Network (Current Setup)
+###  Good for Local Network (Current Setup)
 
-- Use self-signed certificate ✅
-- Basic database encryption ✅
-- Change admin password ✅
-- Configure firewall (only allow LAN) ✅
-- Keep `.env` file secure ✅
+- Use self-signed certificate 
+- Basic database encryption 
+- Change admin password 
+- Configure firewall (only allow LAN) 
+- Keep `.env` file secure 
 
-### ⚠️ Required for Internet Access
+###  Required for Internet Access
 
-- Use Let's Encrypt certificate 🔴
-- Install SQLCipher encryption 🔴
-- Implement user authentication 🔴
-- Enable audit logging 🔴
-- Regular security updates 🔴
+- Use Let's Encrypt certificate 
+- Install SQLCipher encryption 
+- Implement user authentication 
+- Enable audit logging 
+- Regular security updates 
 
 ---
 
-## 📊 Performance Impact
+##  Performance Impact
 
 Security features have **minimal performance impact**:
 
@@ -307,7 +307,7 @@ Security features have **minimal performance impact**:
 
 ---
 
-## 🔄 Updating SSL Certificate (Yearly)
+##  Updating SSL Certificate (Yearly)
 
 Certificate expires after 365 days. To renew:
 
@@ -326,27 +326,27 @@ rm -rf ssl/
 
 ---
 
-## 📱 Mobile Access with HTTPS
+##  Mobile Access with HTTPS
 
 ### Android
 
 1. Open Chrome: `https://172.20.10.12:5000`
 2. Tap **"Advanced"**
 3. Tap **"Proceed to 172.20.10.12 (unsafe)"**
-4. Dashboard loads ✅
+4. Dashboard loads 
 
 ### iOS (iPhone/iPad)
 
 1. Open Safari: `https://172.20.10.12:5000`
 2. Tap **"Show Details"**
 3. Tap **"visit this website"**
-4. Dashboard loads ✅
+4. Dashboard loads 
 
 **Note:** You may need to repeat this process each time unless you install the certificate.
 
 ---
 
-## 🔑 Password Management
+##  Password Management
 
 ### Admin Password
 
@@ -373,16 +373,16 @@ ADMIN_PASS = 'your_new_secure_password'
 
 ---
 
-## 🎯 Summary
+##  Summary
 
 ### What You Get
 
-✅ **HTTPS encryption** for web dashboard  
-✅ **Database encryption** for data protection  
-✅ **One-command setup** (30 seconds)  
-✅ **No code changes** required  
-✅ **Minimal performance impact** (<3% CPU)  
-✅ **100% requirements compliance**
+ **HTTPS encryption** for web dashboard  
+ **Database encryption** for data protection  
+ **One-command setup** (30 seconds)  
+ **No code changes** required  
+ **Minimal performance impact** (<3% CPU)  
+ **100% requirements compliance**
 
 ### What You Need to Do
 
@@ -394,11 +394,11 @@ ADMIN_PASS = 'your_new_secure_password'
 
 - All existing features work exactly the same
 - Same dashboard, same API, same functionality
-- Just more secure! 🔒
+- Just more secure! 
 
 ---
 
-## 🎓 Learning More
+##  Learning More
 
 ### Security Concepts
 
@@ -409,17 +409,17 @@ ADMIN_PASS = 'your_new_secure_password'
 
 ### Why Self-Signed is OK for Local Network
 
-✅ **You control the network** - No untrusted parties  
-✅ **You trust yourself** - You created the certificate  
-✅ **No internet required** - Works offline  
-✅ **Free** - No certificate purchase needed  
-✅ **Fast setup** - Generate in seconds
+ **You control the network** - No untrusted parties  
+ **You trust yourself** - You created the certificate  
+ **No internet required** - Works offline  
+ **Free** - No certificate purchase needed  
+ **Fast setup** - Generate in seconds
 
-❌ **NOT OK for public internet** - Browsers distrust self-signed certs online
+ **NOT OK for public internet** - Browsers distrust self-signed certs online
 
 ---
 
-## 📞 Support
+##  Support
 
 ### Common Questions
 
@@ -447,42 +447,42 @@ A: For a rowing club on local network: Very secure! For banking app: Needs more 
 
 ---
 
-## 📝 Change Log
+##  Change Log
 
 ### Version: Security Update (October 20, 2025)
 
 **Added:**
-- ✅ HTTPS support with automatic SSL detection
-- ✅ Database encryption with password protection
-- ✅ One-command security setup script
-- ✅ Comprehensive security documentation
-- ✅ Requirements compliance analysis (100% software requirements)
+-  HTTPS support with automatic SSL detection
+-  Database encryption with password protection
+-  One-command security setup script
+-  Comprehensive security documentation
+-  Requirements compliance analysis (100% software requirements)
 
 **Changed:**
-- 📝 Updated `.gitignore` to exclude SSL certificates and keys
-- 📝 Updated `README.md` with security setup step
-- 📝 Updated `requirements.txt` with security packages
+-  Updated `.gitignore` to exclude SSL certificates and keys
+-  Updated `README.md` with security setup step
+-  Updated `requirements.txt` with security packages
 
 **Security:**
-- 🔒 All web traffic now encrypted (when HTTPS enabled)
-- 🔒 Database now encrypted (when key set in `.env`)
-- 🔒 SSL certificates excluded from version control
-- 🔒 Encryption keys excluded from version control
+-  All web traffic now encrypted (when HTTPS enabled)
+-  Database now encrypted (when key set in `.env`)
+-  SSL certificates excluded from version control
+-  Encryption keys excluded from version control
 
 ---
 
-## ✨ That's It!
+##  That's It!
 
 You now have a **secure, encrypted, HTTPS-enabled** boat tracking system!
 
 **Next steps:**
 1. Run `./enable_security.sh` on your RPi
 2. Access dashboard via HTTPS
-3. Enjoy secure boat tracking! 🚤🔒
+3. Enjoy secure boat tracking! 
 
 ---
 
 *Security setup created: October 20, 2025*  
 *Branch: working-single-scanner*  
-*Requirements compliance: 15/15 (100% ✅)*
+*Requirements compliance: 15/15 (100% )*
 

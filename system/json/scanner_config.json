@@ -6,8 +6,8 @@
       "id": "gate-1",
       "hysteresis": { "enter_dbm": -58, "exit_dbm": -64, "min_hold_ms": 1200 },
       "scanners": [
-        { "id": "gate-1-left",  "adapter": "hci0", "rssi_bias_db": 0, "scan_interval": 1.0, "batch_size": 10, "api_key": "default-key" },
-        { "id": "gate-1-right", "adapter": "hci1", "rssi_bias_db": 0, "scan_interval": 1.0, "batch_size": 10, "api_key": "default-key" }
+        { "id": "gate-left",  "adapter": "hci0", "rssi_bias_db": 0, "scan_interval": 1.0, "batch_size": 10, "api_key": "default-key" },
+        { "id": "gate-right", "adapter": "hci1", "rssi_bias_db": 0, "scan_interval": 1.0, "batch_size": 10, "api_key": "default-key" }
       ]
     }
   ]

@@ -158,12 +158,12 @@ for boat in boats:
 
 ## Benefits
 
-✅ **No fake timestamps** - Only real transitions create timestamps
-✅ **Deterministic** - Same events always produce same summary
-✅ **Restartable** - Recomputed from events, not cached state
-✅ **Timezone-aware** - All logic in club local time
-✅ **Yesterday carry-over** - Boats still out show when they left
-✅ **Multiple trips** - First OUT, latest IN preserved
+ **No fake timestamps** - Only real transitions create timestamps
+ **Deterministic** - Same events always produce same summary
+ **Restartable** - Recomputed from events, not cached state
+ **Timezone-aware** - All logic in club local time
+ **Yesterday carry-over** - Boats still out show when they left
+ **Multiple trips** - First OUT, latest IN preserved
 
 ---
 
@@ -242,5 +242,5 @@ WHERE boat_id = 'B123'
 
 **Implementation Date**: October 21, 2025  
 **Branch**: working-single-scanner  
-**Status**: ✅ Implemented and ready for testing
+**Status**:  Implemented and ready for testing
 

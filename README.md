@@ -10,6 +10,44 @@ Multi-beacon BLE system for tracking boat presence and managing beacon-to-boat a
 - REST API for integrations
 - **NEW**: Trip tracking and water time analytics
 - **NEW**: Multiple display modes (web dashboard + HDMI terminal display)
+- **NEW**: Emergency boat notification system with WiFi-based alerts and vibration
+
+## Script Organization
+
+The system has been **consolidated and organized** for easier use and maintenance:
+
+### **Root Directory (Clean & Organized)**
+- **`start_system.sh`** - Main startup script (handles everything)
+- **Core system files** - Essential Python modules and scripts
+- **48% reduction** in root directory clutter (29 → 15 scripts)
+
+### **Organized Script Structure**
+```
+scripts/
+├── setup/
+│   └── setup_system.sh              # Comprehensive system setup
+├── management/
+│   └── manage_system.sh             # System management (start/stop/status/logs)
+├── testing/
+│   └── test_system.sh               # Comprehensive testing suite
+└── utilities/
+    └── [14 legacy/utility scripts]  # Moved from root directory
+```
+
+### **Quick Commands**
+```bash
+# Setup everything
+./scripts/setup/setup_system.sh --security --emergency
+
+# Start system
+./start_system.sh --security --emergency --display-mode both
+
+# Manage system
+./scripts/management/manage_system.sh start|stop|status|logs|test
+
+# Test system
+./scripts/testing/test_system.sh all|environment|hardware|software
+```
 
 ## Software System Architecture
 
@@ -106,94 +144,123 @@ ssh pi@<RPI_IP> -p 2222
 git clone https://github.com/ksumit12/ENGN8170_group_project.git
 cd ENGN8170_group_project
 
-# Make setup script executable and run it
-chmod +x scripts/setup_rpi.sh
-./scripts/setup_rpi.sh
+# Run comprehensive setup with all features
+./scripts/setup/setup_system.sh --security --emergency
 ```
 
-### Step 3: Enable Security (HTTPS + Encryption) - OPTIONAL
+### Step 3: Start the System
 ```bash
-# Enable HTTPS and database encryption (recommended)
-./enable_security.sh
+# Start with all features enabled
+./start_system.sh --security --emergency --display-mode both
+
+# Or use the management script
+./scripts/management/manage_system.sh start
 ```
 
-This enables:
-- ✅ HTTPS for secure web dashboard access
-- ✅ Database encryption for data protection
-
-See [SECURITY.md](SECURITY.md) for details.
-
-### Step 4: Activate Environment and Start System
+### Step 4: Verify Installation
 ```bash
-# Activate virtual environment (REQUIRED before any commands)
-source .venv/bin/activate
+# Test the system
+./scripts/testing/test_system.sh all
 
-# Initialize database with sample data
-python3 setup_new_system.py
-
-# Start the system (choose your preferred mode)
+# Check system status
+./scripts/management/manage_system.sh status
 ```
 
 ## Running the System
 
-### Option 1: Web Dashboard Only (Default)
+### Quick Start
 ```bash
-# Activate environment first
-source .venv/bin/activate
+# Start with all features
+./start_system.sh --security --emergency --display-mode both
 
-# Start web dashboard
-python3 boat_tracking_system.py --api-port 8000 --web-port 5000
+# Basic start
+./start_system.sh
+
+# Start with specific options
+./start_system.sh --display-mode web --api-port 8000 --web-port 5000
 ```
-- **Access**: http://localhost:5000 (or http://<RPI_IP>:5000 from other devices)
-- **Features**: Full interactive dashboard, boat management, beacon registration, trip analytics
 
-### Option 2: HDMI Terminal Display Only
+### System Management
 ```bash
-# Activate environment first
-source .venv/bin/activate
+# Start system
+./scripts/management/manage_system.sh start
 
-# Start terminal display (HDMI monitor)
-python3 boat_tracking_system.py --display-mode terminal
+# Check status
+./scripts/management/manage_system.sh status
+
+# View logs
+./scripts/management/manage_system.sh logs system
+
+# Stop system
+./scripts/management/manage_system.sh stop
+
+# Restart system
+./scripts/management/manage_system.sh restart
 ```
-- **Access**: Direct HDMI output on Raspberry Pi
-- **Features**: Real-time boat status board, color-coded status indicators, automatic updates
 
-### Option 3: Both Web + Terminal Display
+### Testing
 ```bash
-# Activate environment first
-source .venv/bin/activate
+# Run all tests
+./scripts/testing/test_system.sh all
 
-# Start both web and terminal display
-python3 boat_tracking_system.py --display-mode both --api-port 8000 --web-port 5000
+# Test specific components
+./scripts/testing/test_system.sh environment
+./scripts/testing/test_system.sh hardware
+./scripts/testing/test_system.sh software
 ```
-- **Access**: Web dashboard + HDMI terminal display simultaneously
-- **Features**: Full web functionality + live terminal display
-
-### Option 4: Public Access (ngrok tunnel)
-```bash
-# Activate environment first
-source .venv/bin/activate
-
-# Start with public tunnel
-./scripts/start_public.sh
-```
-- **Access**: Public URL via ngrok tunnel
-- **Static URL**: `https://boat-tracking-ksumit12.ngrok.io` (NEVER CHANGES!)
 
 ## Stopping the System
 
 ### Quick Stop (All Processes)
 ```bash
-# Stop all boat tracking processes
-./scripts/stop_everything.sh
+# Stop all system processes
+./scripts/management/manage_system.sh stop
 ```
 
 ### Manual Stop
 ```bash
-# Kill specific processes
-pkill -f boat_tracking_system.py
-pkill -f scanner_service.py
-pkill -f sim_run_simulator.py
+# Stop specific processes
+pkill -f "boat_tracking_system.py"
+pkill -f "ble_scanner.py"
+pkill -f "api_server.py"
+```
+
+## Script Consolidation Benefits
+
+The system has been **significantly reorganized** for better usability:
+
+### **Before (Cluttered)**
+- 29 scripts scattered in root directory
+- Multiple overlapping setup scripts
+- Hard to find the right script
+- Duplicate functionality across files
+
+### **After (Organized)**
+- 15 scripts in root directory (**48% reduction**)
+- Clear organization by function
+- Single comprehensive scripts for complex operations
+- All functionality preserved, just better organized
+
+### **Key Improvements**
+- **`start_system.sh`** - Single command to start everything
+- **`scripts/management/manage_system.sh`** - Complete system control
+- **`scripts/testing/test_system.sh`** - Comprehensive testing suite
+- **`scripts/setup/setup_system.sh`** - One-time complete setup
+- **`scripts/utilities/`** - Legacy scripts organized separately
+
+### **Usage Examples**
+```bash
+# Complete setup in one command
+./scripts/setup/setup_system.sh --security --emergency
+
+# Start with all features
+./start_system.sh --security --emergency --display-mode both
+
+# Manage system operations
+./scripts/management/manage_system.sh start|stop|status|logs|test|maintenance
+
+# Comprehensive testing
+./scripts/testing/test_system.sh all|environment|hardware|software|features|integration
 ```
 
 ## Physical Hardware Setup
@@ -235,30 +302,54 @@ Configure your beacons for **~1-1.5 meter detection radius**:
 - **Terminal Display**: Clean HDMI output optimized for monitors
 - **Both**: Simultaneous web + terminal display
 
+### Emergency Boat Notification System
+- **WiFi-Based Alerts**: Notifies all devices connected to the same WiFi network
+- **Vibration Patterns**: Different vibration patterns based on urgency level
+- **Real-Time Monitoring**: Continuous monitoring for boats outside after hours
+- **Escalation System**: Automatic escalation with increasing urgency over time
+- **Web Push Notifications**: Browser notifications with vibration for immediate attention
+
+#### Emergency Notification Features:
+- **Multi-Level Urgency**: 4 escalation levels based on how long boats are outside
+- **WiFi Network Discovery**: Automatically detects and targets WiFi-connected devices
+- **Vibration Patterns**: 
+  - Normal: `[200, 100, 200]` - Short, gentle
+  - Urgent: `[300, 100, 300, 100, 300]` - Medium with pauses
+  - Emergency: `[500, 200, 500, 200, 500, 200, 500]` - Long, strong
+  - Critical: `[1000, 500, 1000, 500, 1000]` - Very long, intense
+- **Network Broadcast**: Attempts to notify other devices on the WiFi network
+- **Dashboard Integration**: Emergency controls available in web dashboard
+
+#### Setup Emergency Notifications:
+```bash
+# Setup emergency notification system (now integrated)
+./scripts/setup/setup_system.sh --emergency
+
+# Start system with emergency notifications
+./start_system.sh --emergency
+
+# Manage emergency system
+./scripts/management/manage_system.sh start
+```
+
 ## Initial Setup Commands
 
 ```bash
 # 1. SSH into Raspberry Pi
 ssh pi@<RPI_IP> -p 2222
 
-# 2. Clone and setup
+# 2. Clone and setup (NEW: Consolidated approach)
 git clone https://github.com/ksumit12/ENGN8170_group_project.git
 cd ENGN8170_group_project
-chmod +x scripts/setup_rpi.sh
-./scripts/setup_rpi.sh
 
-# 3. Activate environment (REQUIRED for all operations)
-source .venv/bin/activate
+# 3. Complete setup with all features
+./scripts/setup/setup_system.sh --security --emergency
 
-# 4. Initialize database
-python3 setup_new_system.py
+# 4. Start system
+./start_system.sh --security --emergency --display-mode both
 
-# 5. Start system (choose your mode)
-python3 boat_tracking_system.py --display-mode web --api-port 8000 --web-port 5000
-# OR
-python3 boat_tracking_system.py --display-mode terminal
-# OR
-python3 boat_tracking_system.py --display-mode both --api-port 8000 --web-port 5000
+# 5. Verify installation
+./scripts/testing/test_system.sh all
 ```
 
 ## Registering a New Beacon
@@ -286,42 +377,42 @@ python3 sim_seed_data.py --boats 10 --days 10 --reset
 
 ```
 grp_project/
-├── boat_tracking_system.py     # Web Dashboard + API Orchestrator [Web/API Server + Displays]
-├── api_server.py               # REST API server for detections and status [Web/API Server]
-├── ble_scanner.py              # Single BLE receiver at a gate [Receivers at Chokepoint]
-├── scanner_service.py          # Runs both receivers together [BLE Ingest]
-├── beacon_simulator.py         # Test signal generator [Simulation & Testing]
-├── sim_run_simulator.py        # Movement simulator end-to-end [Simulation & Testing]
-├── sim_fsm_viewer.py           # Visualizes state changes [Displays]
-├── sim_seed_data.py            # Creates demo boats/beacons/trips [State Store]
-├── scanner_service.py          # Service to run both scanners together [BLE Ingest]
-├── app/                        # Core application modules
-│   ├── database_models.py      # Database tables and access [State Store]
-│   ├── entry_exit_fsm.py       # Boat entry/exit logic (rules) [Event Engine]
-│   ├── fsm_engine.py           # Wires FSM into the app [Event Engine]
-│   ├── admin_service.py        # Admin actions (assign beacons, etc.) [Web/API Server]
-│   └── logging_config.py       # Unified logs [All blocks]
-├── requirements.txt            # Python dependencies
-├── data/                       # Database and logs directory
-│   ├── boat_tracking.db        # SQLite database (runtime) [State Store]
-│   └── logs/                   # System logs [Observability]
-├── scripts/                    # Operational & diagnostic scripts
-│   ├── setup_rpi.sh            # One-command Pi setup [Deployment]
-│   ├── start_everything.sh     # Start full system [Operations]
-│   ├── stop_everything.sh      # Stop all processes [Operations]
-│   ├── check_status.sh         # Health/status snapshot [Operations]
-│   ├── start_public.sh         # Public tunnel start [Operations]
-│   ├── monitor_scanner_sequences.py # Shows inner→outer / outer→inner in real time [Diagnostics]
-│   └── ibeacon_dual_monitor.py # Live signal strength & distance per adapter [Receivers Diagnostics]
-├── system/
-│   └── json/                   # Runtime JSON configuration
-│       ├── scanner_config.json # Which USB adapter is inner/outer, thresholds [Receivers + Ingest]
-│       └── settings.json       # General app settings [Operations]
-├── tools/                      # Developer utilities
-│   ├── backfill_history.py     # Rebuild trip/history data [State Store]
-│   ├── ble_testing/            # BLE range tests & helpers [Receivers Diagnostics]
-│   └── network/                # Network helpers (e.g., get_ip) [Operations]
-└── README.md                   # This file
+ boat_tracking_system.py     # Web Dashboard + API Orchestrator [Web/API Server + Displays]
+ api_server.py               # REST API server for detections and status [Web/API Server]
+ ble_scanner.py              # Single BLE receiver at a gate [Receivers at Chokepoint]
+ scanner_service.py          # Runs both receivers together [BLE Ingest]
+ beacon_simulator.py         # Test signal generator [Simulation & Testing]
+ sim_run_simulator.py        # Movement simulator end-to-end [Simulation & Testing]
+ sim_fsm_viewer.py           # Visualizes state changes [Displays]
+ sim_seed_data.py            # Creates demo boats/beacons/trips [State Store]
+ scanner_service.py          # Service to run both scanners together [BLE Ingest]
+ app/                        # Core application modules
+    database_models.py      # Database tables and access [State Store]
+    entry_exit_fsm.py       # Boat entry/exit logic (rules) [Event Engine]
+    fsm_engine.py           # Wires FSM into the app [Event Engine]
+    admin_service.py        # Admin actions (assign beacons, etc.) [Web/API Server]
+    logging_config.py       # Unified logs [All blocks]
+ requirements.txt            # Python dependencies
+ data/                       # Database and logs directory
+    boat_tracking.db        # SQLite database (runtime) [State Store]
+    logs/                   # System logs [Observability]
+ scripts/                    # Operational & diagnostic scripts
+    setup_rpi.sh            # One-command Pi setup [Deployment]
+    start_everything.sh     # Start full system [Operations]
+    stop_everything.sh      # Stop all processes [Operations]
+    check_status.sh         # Health/status snapshot [Operations]
+    start_public.sh         # Public tunnel start [Operations]
+    monitor_scanner_sequences.py # Shows inner→outer / outer→inner in real time [Diagnostics]
+    ibeacon_dual_monitor.py # Live signal strength & distance per adapter [Receivers Diagnostics]
+ system/
+    json/                   # Runtime JSON configuration
+        scanner_config.json # Which USB adapter is inner/outer, thresholds [Receivers + Ingest]
+        settings.json       # General app settings [Operations]
+ tools/                      # Developer utilities
+    backfill_history.py     # Rebuild trip/history data [State Store]
+    ble_testing/            # BLE range tests & helpers [Receivers Diagnostics]
+    network/                # Network helpers (e.g., get_ip) [Operations]
+ README.md                   # This file
 ```
 
 > System diagram: see `~/Documents/system_architecture.png` (not tracked in repo).
@@ -331,7 +422,7 @@ grp_project/
 This maps each block in the architecture diagram to the scripts/modules that implement it, so teammates can find the relevant code quickly.
 
 - BLE Receivers at Chokepoint (Left/Right/Overhead)
-  - Primary: `ble_scanner.py` (single scanner), `scanner_service.py` (multi-scanner)
+  - Primary: `ble_scanner.py`, `scanner_service.py`
   - Config: `system/json/scanner_config.json` (adapters `hci0/hci1`, thresholds)
   - Diagnostics: `scripts/ibeacon_dual_monitor.py`, `tools/ble_testing/*`
 
@@ -374,6 +465,7 @@ Physical mapping tips
 
 ## REST API Endpoints
 
+### Core System API
 ```
 POST /api/v1/detections              # Scanner → server observations
 GET  /api/v1/boats                   # List boats (includes water_time_today_minutes)
@@ -386,22 +478,80 @@ GET  /api/v1/usage-stats             # Get usage analytics
 GET  /health                         # Health check
 ```
 
+### Emergency Notification API
+```
+GET  /api/emergency/vapid-public-key  # Get VAPID public key for push notifications
+POST /api/emergency/subscribe         # Subscribe device to emergency notifications
+POST /api/emergency/unsubscribe       # Unsubscribe device from emergency notifications
+POST /api/emergency/test              # Send test emergency notification
+GET  /api/emergency/status            # Get emergency notification system status
+POST /api/emergency/acknowledge       # Acknowledge receipt of emergency notification
+```
+
+## Script Organization Summary
+
+The system has been **completely reorganized** for better usability and maintenance:
+
+### **Root Directory (Clean)**
+- **15 scripts** (down from 29 - **48% reduction**)
+- **`start_system.sh`** - Main startup script
+- **Core system files** - Essential Python modules
+
+### **Organized Scripts Directory**
+```
+scripts/
+├── setup/setup_system.sh           # Complete system setup
+├── management/manage_system.sh     # System management
+├── testing/test_system.sh          # Testing suite
+└── utilities/                     # Legacy scripts (14 files)
+```
+
+### **Key Benefits**
+- **Single commands** for complex operations
+- **Clear organization** by function
+- **Reduced clutter** in root directory
+- **Preserved functionality** - nothing lost
+- **Easier maintenance** and updates
+
+### **Quick Reference**
+```bash
+# Setup everything
+./scripts/setup/setup_system.sh --security --emergency
+
+# Start system
+./start_system.sh --security --emergency --display-mode both
+
+# Manage system
+./scripts/management/manage_system.sh start|stop|status|logs|test
+
+# Test system
+./scripts/testing/test_system.sh all|environment|hardware|software
+```
+
 ## Troubleshooting
 
 ### Common Issues
-- **Port in use (8000/5000)**: Run `./scripts/stop_everything.sh` to stop previous runs
+- **Port in use (8000/5000)**: Run `./scripts/management/manage_system.sh stop` to stop previous runs
 - **BLE permissions**: Ensure user can access BLE adapter (Bluetooth group)
 - **No beacons listed**: Ensure device is broadcasting iBeacon frames
+- **System not starting**: Check logs with `./scripts/management/manage_system.sh logs`
+- **Emergency notifications not working**: Verify setup with `./scripts/testing/test_system.sh features`
 - **Environment not activated**: Always run `source .venv/bin/activate` first
 - **HDMI display issues**: Check HDMI connection and `/boot/config.txt` settings
 
 ### Useful Commands
 ```bash
 # Check system status
-./scripts/check_status.sh
+./scripts/management/manage_system.sh status
 
 # Stop all processes
-./scripts/stop_everything.sh
+./scripts/management/manage_system.sh stop
+
+# View system logs
+./scripts/management/manage_system.sh logs system
+
+# Test system functionality
+./scripts/testing/test_system.sh all
 
 # Get Raspberry Pi IP
 python3 tools/network/get_ip.py
@@ -473,37 +623,6 @@ This branch focuses on left/right door calibration, scanner mapping, and improvi
 - Notes:
   - Dashboard is served on `http://<pi-ip>:5000`. If unreachable, confirm the Pi IP and that the process is running (see Troubleshooting section).
   - BLE watchdog helps keep adapters stable during long runs.
-
-## Branch: `demo/single-scanner-fallback` (Demo‑optimized Single Scanner)
-
-Purpose: deliver a reliable demo using a single scanner. IN_SHED is asserted on any detection, and ON_WATER is inferred when the beacon hasn’t been seen for a short window.
-
-- Key changes in this branch:
-  - Added `app/single_scanner_engine.py` and auto-selected it when `SINGLE_SCANNER=1`.
-  - `api_server.py`: bypasses direction FSM in single‑scanner mode; immediate IN_HARBOR on detection, OUT via recency.
-  - `scanner_service.py`: starts only one scanner, honors `SCANNER_ID` env.
-  - `sim_run_simulator.py`: emits detections from a single scanner when enabled.
-  - `app/database_models.py`: pruned door‑LR specific states; kept minimal states `IDLE`, `INSIDE/ENTERED`, `OUTSIDE/EXITED`.
-
-- Environment variables:
-  - `SINGLE_SCANNER=1` to enable this mode.
-  - `SCANNER_ID=gate-inner` to select which scanner id to use.
-  - `PRESENCE_ACTIVE_WINDOW_S=5` seconds of silence before showing On Water.
-
-- How to run (Pi):
-```bash
-cd ~/grp_project
-git fetch && git checkout demo/single-scanner-fallback && git pull
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-export SINGLE_SCANNER=1
-export SCANNER_ID=gate-inner
-export PRESENCE_ACTIVE_WINDOW_S=5
-
-python3 boat_tracking_system.py --api-port 8000 --web-port 5000 --display-mode web --db-path data/boat_tracking.db
-```
-
 
 ## Calibration (Door L/R)
 

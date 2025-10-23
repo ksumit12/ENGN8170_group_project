@@ -35,12 +35,12 @@ def print_header(text: str):
 
 def print_success(text: str):
     """Print success message."""
-    print(f"{Colors.OKGREEN}✓ {text}{Colors.ENDC}")
+    print(f"{Colors.OKGREEN} {text}{Colors.ENDC}")
 
 
 def print_error(text: str):
     """Print error message."""
-    print(f"{Colors.FAIL}✗ {text}{Colors.ENDC}")
+    print(f"{Colors.FAIL} {text}{Colors.ENDC}")
 
 
 def print_info(text: str):
@@ -50,7 +50,7 @@ def print_info(text: str):
 
 def print_warning(text: str):
     """Print warning message."""
-    print(f"{Colors.WARNING}⚠ {text}{Colors.ENDC}")
+    print(f"{Colors.WARNING} {text}{Colors.ENDC}")
 
 
 def run_command(cmd: List[str], description: str, check: bool = True, timeout: int = None):
@@ -334,15 +334,19 @@ def main():
     print(f"\n{Colors.BOLD}Summary report: {report_path}{Colors.ENDC}")
     
     if passed_tests == total_tests:
-        print_success("\n🎉 All tests passed!")
+        print_success("\n All tests passed!")
         return 0
     else:
-        print_warning(f"\n⚠ {total_tests - passed_tests} test(s) failed")
+        print_warning(f"\n {total_tests - passed_tests} test(s) failed")
         return 1
 
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+
+
 
 
 

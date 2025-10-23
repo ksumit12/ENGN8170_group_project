@@ -27,6 +27,7 @@ from ble_scanner import BLEScanner, ScannerConfig
 from api_server import APIServer
 from app import admin_service
 from app.logging_config import get_logger, setup_logging
+from app.emergency_system import EmergencyNotificationSystem, register_emergency_api
 
 # Setup comprehensive logging
 system_logger = setup_logging()
@@ -236,6 +237,11 @@ class BoatTrackingSystem:
                 self.web_app = Flask(__name__)
                 CORS(self.web_app)
                 self.setup_web_routes()
+                
+                # Register emergency notification API routes
+                if self.emergency_enabled:
+                    register_emergency_api(self.web_app)
+                    logger.info("Emergency notification API routes registered", "EMERGENCY")
             else:
                 self.web_app = None
                 
@@ -245,6 +251,18 @@ class BoatTrackingSystem:
             # Initialize status monitoring
             self.health_check_interval = 30  # seconds
             self.last_health_check = datetime.now(timezone.utc)
+            
+            # Initialize emergency notification system
+            self.emergency_notifications = None
+            self.emergency_enabled = config.get('emergency_notifications', {}).get('enabled', False)
+            if self.emergency_enabled:
+                try:
+                    emergency_config = config.get('emergency_notifications', {})
+                    self.emergency_notifications = EmergencyNotificationSystem(emergency_config)
+                    logger.info("Emergency notification system initialized", "EMERGENCY")
+                except Exception as e:
+                    logger.error(f"Failed to initialize emergency notifications: {e}", "EMERGENCY", e)
+                    self.emergency_enabled = False
             
             # Terminal display (only if terminal mode is enabled)
             if display_mode in ['terminal', 'both']:
@@ -1279,9 +1297,9 @@ class BoatTrackingSystem:
                                     'boat_class': boat.class_type,
                                     'date': current_date.isoformat(),
                                     'left_shed': out_event['ts_local'].strftime('%Y-%m-%d %H:%M:%S'),
-                                    'returned_shed': in_event['ts_local'].strftime('%Y-%m-%d %H:%M:%S') if in_event else '—',
-                                    'duration_minutes': duration_min or '—',
-                                    'duration_hours': duration_hr or '—',
+                                    'returned_shed': in_event['ts_local'].strftime('%Y-%m-%d %H:%M:%S') if in_event else '',
+                                    'duration_minutes': duration_min or '',
+                                    'duration_hours': duration_hr or '',
                                     'status': status
                                 })
                             else:
@@ -1453,17 +1471,8 @@ class BoatTrackingSystem:
                 except Exception:
                     present_adapters = set()
             
-            # SINGLE_SCANNER override: if env set, only start the specified scanner
-            single_scanner = os.getenv('SINGLE_SCANNER', '0') == '1'
-            preferred_id = os.getenv('SCANNER_ID')
-            
             for scanner_config in self.config['scanners']:
                 try:
-                    # Skip scanners if in single-scanner mode and this isn't the preferred one
-                    if single_scanner and preferred_id and scanner_config.get('id') != preferred_id:
-                        logger.info(f"Skipping scanner {scanner_config['id']} - single scanner mode, using {preferred_id}", "SCANNER")
-                        continue
-                    
                     adapter = scanner_config.get('adapter', None)
                     if adapter and present_adapters and adapter not in present_adapters:
                         logger.warning(f"Skipping scanner {scanner_config['id']} - adapter {adapter} not found (present: {sorted(present_adapters)})", "SCANNER")
@@ -1722,6 +1731,11 @@ class BoatTrackingSystem:
             # Start health monitoring
             self._start_health_monitoring()
             
+            # Start emergency notification monitoring (if enabled)
+            if self.emergency_enabled and self.emergency_notifications:
+                self.emergency_notifications.start_monitoring(self.db)
+                logger.info("Emergency notification monitoring started", "EMERGENCY")
+            
             self.running = True
             logger.info("Boat Tracking System started successfully", "SYSTEM")
             logger.info(f"API Server: http://{self.config['api_host']}:{self.config['api_port']}", "SYSTEM")
@@ -1832,7 +1846,7 @@ class BoatTrackingSystem:
                             self._perform_weekly_export()
                             last_export_week = current_week
                             # Wait to avoid multiple exports
-                            time.sleep(3600)  # Wait 1 hour
+                        time.sleep(3600)  # Wait 1 hour
                     else:
                         # Check every minute
                         time.sleep(60)
@@ -2162,6 +2176,11 @@ class BoatTrackingSystem:
             
             # Clear scanner list
             self.scanners.clear()
+            
+            # Stop emergency notification monitoring (if enabled)
+            if self.emergency_enabled and self.emergency_notifications:
+                self.emergency_notifications.stop_monitoring()
+                logger.info("Emergency notification monitoring stopped", "EMERGENCY")
             
             logger.info("Boat Tracking System stopped successfully", "SYSTEM")
             logger.audit("SYSTEM_STOP_SUCCESS", "SYSTEM", "All components stopped successfully")
@@ -2681,7 +2700,7 @@ class BoatTrackingSystem:
                     }
                     
                     const formatTimestamp = (iso) => {
-                        if (!iso) return '—';
+                        if (!iso) return '';
                         try {
                             const d = new Date(iso);
                             if (Number.isNaN(d.getTime())) return iso;
@@ -2915,7 +2934,7 @@ class BoatTrackingSystem:
                     const status = b.status === 'in_harbor' ? '<span class="wb-status-in">IN SHED</span>' : '<span class="wb-status-out">ON WATER</span>';
                     // helpers
                     const formatNice = (iso) => {
-                        if (!iso) return '—';
+                        if (!iso) return '';
                         const d = new Date(iso);
                         const now = new Date();
                         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -2929,7 +2948,7 @@ class BoatTrackingSystem:
                     const timeIn = formatNice(b.last_entry);
                     const timeOut = formatNice(b.last_exit);
 
-                    let lastSeen = '—';
+                    let lastSeen = '';
                     if (b.beacon && b.beacon.last_seen) {
                         const lastSeenDate = new Date(b.beacon.last_seen);
                         const now = new Date();
@@ -2946,7 +2965,7 @@ class BoatTrackingSystem:
                             lastSeen = lastSeenDate.toLocaleDateString('en-AU') + ' ' + lastSeenDate.toLocaleTimeString();
                         }
                     }
-                    const waterToday = (b.water_time_today_minutes != null) ? `${b.water_time_today_minutes} min` : '—';
+                    const waterToday = (b.water_time_today_minutes != null) ? `${b.water_time_today_minutes} min` : '';
                     return `<tr><td>${boatName}</td><td>${status}</td><td>${timeIn}</td><td>${timeOut}</td><td>${lastSeen}</td><td>${waterToday}</td></tr>`;
                 }).join('');
                 tbody.innerHTML = rows;
@@ -3088,7 +3107,7 @@ class BoatTrackingSystem:
                                                 MAC: <span style="font-family: monospace;">${beacon.mac_address}</span> | RSSI: ${rssi} | Last seen: ${lastSeen}
                                             </div>
                                         </div>
-                                        <div style="color: #007bff; font-weight: bold;">Click to Register →</div>
+                                        <div style="color: #007bff; font-weight: bold;">Click to Register </div>
                                     </div>
                                 </div>
                             `;
@@ -3441,11 +3460,34 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
       const ct=await fetch('/api/settings/closing-time').then(r=>r.json()).catch(()=>({closing_time:'20:00'}));
       document.getElementById('closing').value=ct.closing_time||'20:00';
       const boats=await fetch('/api/boats?includeDeactivated=true').then(r=>r.json());
-      document.getElementById('boats').innerHTML = boats.map(b=>`<div style="margin:6px 0;">${b.name} (${b.class_type}) — ${b.status}</div>`).join('')||'None';
+      document.getElementById('boats').innerHTML = boats.map(b=>`<div style="margin:6px 0;">${b.name} (${b.class_type})  ${b.status}</div>`).join('')||'None';
     }
     async function saveClosing(){ const v=document.getElementById('closing').value||'20:00'; await fetch('/api/settings/closing-time',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({closing_time:v})}); alert('Saved'); }
     async function createBoat(){ const id=bid.value,name=bname.value,cls=bclass.value||'unknown'; if(!id||!name){alert('id and name required');return;} await fetch('/api/boats',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,name:name,class_type:cls})}); load(); }
+    
+    // Initialize emergency notifications
+    async function initEmergencyNotifications() {
+      try {
+        // Check if emergency notifications are enabled
+        const status = await fetch('/api/emergency/status').then(r => r.json()).catch(() => null);
+        if (status && status.subscribed_devices >= 0) {
+          console.log('Emergency notifications available');
+          
+          // Load emergency notification script
+          const script = document.createElement('script');
+          script.src = '/static/js/emergency-system.js';
+          script.onload = () => {
+            console.log('Emergency notification system loaded');
+          };
+          document.head.appendChild(script);
+        }
+      } catch (error) {
+        console.log('Emergency notifications not available:', error);
+      }
+    }
+    
     load();
+    initEmergencyNotifications();
   </script>
 </body></html>
         """
@@ -3562,7 +3604,7 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
       <h1>RED SHED</h1><span>FSM Viewer</span>
     </div>
     <div>
-      <a class="btn" href="/">← Dashboard</a>
+      <a class="btn" href="/"> Dashboard</a>
     </div>
   </div>
   <div class="container">
@@ -3574,7 +3616,7 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
           <span id="stateStats">Loading...</span>
         </div>
         <div id="profilePanel" style="margin-top:10px; font-size:0.9em; color:#9ca3af;">
-          <span>Profile: <b id="profileName">…</b> | Branch: <span id="branchName">…</span></span>
+          <span>Profile: <b id="profileName"></b> | Branch: <span id="branchName"></span></span>
         </div>
         <div id="doorLRPanel" style="display:none; margin-top:10px; font-size:0.9em; color:#9ca3af;">
           <div><b>Door L/R Params</b></div>
@@ -3645,7 +3687,7 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
     function renderMermaid(stateCounts) {{
       const src = createAnimatedMermaid(stateCounts);
       if (!window.mermaid) {{
-        document.getElementById('diagram').innerText = 'Loading diagram engine…';
+        document.getElementById('diagram').innerText = 'Loading diagram engine';
         return;
       }}
       mermaid.render('fsmGraph' + Date.now(), src).then(({{ svg }}) => {{
@@ -3751,7 +3793,7 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
         // Update stats display with live counts
         const total = data.length;
         document.getElementById('stateStats').innerHTML = 
-          `🚤 ${{total}} boats | ⭕ IDLE: ${{stateCounts.idle}} | 🔵 OUTER: ${{stateCounts.seen_outer}} | 🟡 INNER: ${{stateCounts.seen_inner}} | 🟢 ENTERED: ${{stateCounts.entered}} | 🔴 EXITED: ${{stateCounts.exited}}`;
+          ` ${{total}} boats |  IDLE: ${{stateCounts.idle}} |  OUTER: ${{stateCounts.seen_outer}} |  INNER: ${{stateCounts.seen_inner}} |  ENTERED: ${{stateCounts.entered}} |  EXITED: ${{stateCounts.exited}}`;
         
         // Only re-render diagram if state counts changed significantly
         const stateKey = JSON.stringify(stateCounts);
@@ -4378,7 +4420,7 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
     <div class="card">
       <div class="row" style="justify-content:space-between; gap:12px;">
         <div class="title">Search & Manage</div>
-        <a href="/" class="muted" style="text-decoration:none;">← Back to Dashboard</a>
+        <a href="/" class="muted" style="text-decoration:none;"> Back to Dashboard</a>
       </div>
       <div class="row" style="margin-bottom:10px;">
         <input id="q" type="text" placeholder="Search boats by name..." oninput="suggest()" />
@@ -4498,7 +4540,7 @@ Last Detection: ${data.last_detection ? new Date(data.last_detection).toLocaleSt
       const list = document.getElementById('scanList');
       // unassigned only
       const unassigned = data.filter(b => b.status === 'unclaimed');
-      if (!unassigned.length) { list.innerHTML = '<div class="muted">Scanning… no unassigned beacons yet.</div>'; return; }
+      if (!unassigned.length) { list.innerHTML = '<div class="muted">Scanning no unassigned beacons yet.</div>'; return; }
       const boatId = document.getElementById('replaceModal').getAttribute('data-boat');
       const boatName = document.getElementById('replaceModal').getAttribute('data-name');
       list.innerHTML = unassigned.map(b => `<button class="secondary" onclick="confirmReplace('${boatId}','${boatName.replace(/'/g, "\\'")}','${b.mac_address}')">${b.mac_address}</button>`).join(' ');

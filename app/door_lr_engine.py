@@ -11,6 +11,7 @@ from .fsm_engine import IFSMEngine
 from .database_models import DatabaseManager, DetectionState, BoatStatus
 from .logging_config import get_logger
 from .direction_classifier import DirectionClassifier, LRParams
+from .rf_signal_filter import PerScannerRFFilter, load_calibration_bias, apply_bias_compensation
 
 
 logger = get_logger()
@@ -24,6 +25,16 @@ class DoorLREngine(IFSMEngine):
         self.inner_scanner_id = (inner_scanner_id or '').lower()
         self.rssi_threshold = rssi_threshold
         self.hysteresis = hysteresis
+
+        # Initialize RF signal filtering for noise reduction
+        self.rf_filter = PerScannerRFFilter(alpha=0.3, window_size=5)
+        
+        # Load calibration bias if available
+        self.bias_map = load_calibration_bias()
+        if self.bias_map:
+            logger.info(f"Loaded RSSI bias compensation: {self.bias_map}", "DOOR_LR")
+        else:
+            logger.info("No calibration bias found, using raw RSSI values", "DOOR_LR")
 
         # Make parameters much more sensitive for testing
         params = LRParams(
@@ -41,12 +52,6 @@ class DoorLREngine(IFSMEngine):
         self.classifier = DirectionClassifier(params, calib_map, logger)
 
     def process_detection(self, scanner_id: str, beacon_id: str, rssi: int) -> Optional[Tuple[Any, Any]]:
-        # In single-scanner branch, this engine should not be used; early return keeps behavior inert
-        try:
-            from .database_models import DetectionState
-            return (DetectionState.IDLE, DetectionState.IDLE)
-        except Exception:
-            return None
         sid = (scanner_id or '').lower()
         leftish = sid.endswith('left') or sid.endswith('door-left') or sid.endswith('gate-left')
         rightish = sid.endswith('right') or sid.endswith('door-right') or sid.endswith('gate-right')
@@ -55,11 +60,26 @@ class DoorLREngine(IFSMEngine):
             leftish = sid == self.inner_scanner_id
             rightish = sid == self.outer_scanner_id
 
+        # Determine logical scanner name
+        logical_scanner = f"gate-left" if leftish else ("gate-right" if rightish else sid)
+        
+        # Step 1: Apply bias compensation from calibration
+        rssi_with_bias = apply_bias_compensation(logical_scanner, float(rssi), self.bias_map)
+        
+        # Step 2: Apply RF signal filtering to reduce noise
+        rssi_filtered = self.rf_filter.update(logical_scanner, rssi_with_bias)
+        
+        # Log the processing chain for debugging
+        logger.debug(
+            f"RSSI Processing - Raw: {rssi} dBm → Bias: {rssi_with_bias:.1f} dBm → Filtered: {rssi_filtered:.1f} dBm",
+            "DOOR_LR"
+        )
+        
         # Provide a monotonic-like timestamp (seconds)
         t = datetime.now(timezone.utc).timestamp()
-        logical_scanner = f"gate-left" if leftish else ("gate-right" if rightish else sid)
 
-        events = self.classifier.update(beacon_id, logical_scanner, float(rssi), t)
+        # Use filtered RSSI for direction classification
+        events = self.classifier.update(beacon_id, logical_scanner, rssi_filtered, t)
         logger.debug(f"DoorLREngine: scanner={scanner_id}, beacon={beacon_id}, rssi={rssi}, events={len(events)}")
         
         if not events:

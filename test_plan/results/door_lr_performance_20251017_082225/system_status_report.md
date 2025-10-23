@@ -31,10 +31,10 @@ The system demonstrates realistic Bluetooth signal patterns:
 - **Total Detections Processed**: 54
 - **Scanner Coverage**: 2 active scanners
 - **Boat Coverage**: 1 boats with detections
-- **System Status**: ✅ OPERATIONAL
+- **System Status**:  OPERATIONAL
 
 ## Conclusion
-✅ **SYSTEM WORKING CORRECTLY**: The door-lr logic system is functioning as designed.
+ **SYSTEM WORKING CORRECTLY**: The door-lr logic system is functioning as designed.
 - Both scanners are receiving and processing detections
 - Signal patterns show realistic Bluetooth behavior
 - System is tracking boat movements accurately

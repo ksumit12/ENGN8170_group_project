@@ -23,15 +23,15 @@ logger = get_logger()
 
 class APIServer:
     def __init__(self, db_path: str = "boat_tracking.db", 
-                 outer_scanner_id: str = "gate-outer", 
-                 inner_scanner_id: str = "gate-inner"):
+                 outer_scanner_id: str = "gate-right", 
+                 inner_scanner_id: str = "gate-left"):
         self.app = Flask(__name__)
         CORS(self.app)
         
         self.db = DatabaseManager(db_path)
-        # Build engine (hard-lock to SingleScannerEngine in this branch to avoid any two-scanner paths)
+        # Use DoorLREngine for two-scanner door left/right configuration
         import os, subprocess
-        os.environ['FSM_ENGINE'] = 'app.single_scanner_engine:SingleScannerEngine'
+        os.environ['FSM_ENGINE'] = 'app.door_lr_engine:DoorLREngine'
         self.fsm: IFSMEngine = build_fsm_engine(
             db_manager=self.db,
             outer_scanner_id=outer_scanner_id,
@@ -76,8 +76,6 @@ class APIServer:
                 
                 processed_count = 0
                 state_changes = []
-                import os
-                single_scanner = os.getenv('SINGLE_SCANNER', '0') == '1'
                 
                 for obs in observations:
                     mac_address = obs.get('mac')
@@ -118,36 +116,6 @@ class APIServer:
                             self._seen_live_beacons.add(beacon.id)
                     except Exception:
                         pass
-
-                    # SINGLE_SCANNER mode: Log events on state transitions
-                    if single_scanner:
-                        try:
-                            now_dt = datetime.now(timezone.utc)
-                            boat_before = self.db.get_boat(assigned_boat.id)
-                            was_out = boat_before and getattr(boat_before, 'status', None) == BoatStatus.OUT
-                            
-                            # Always set IN_HARBOR immediately on detection
-                            self.db.update_boat_status(assigned_boat.id, BoatStatus.IN_HARBOR)
-                            
-                            # Log IN_SHED event ONLY if transitioning from OUT → IN
-                            if was_out:
-                                event_id = self.db.log_shed_event(assigned_boat.id, beacon.id, 'IN_SHED', now_dt)
-                                logger.info(f"IN_SHED: {assigned_boat.name} (event {event_id})", "EVENT")
-                                
-                                # Also update beacon state for compatibility
-                                self.db.update_beacon_state(beacon.id, DetectionState.ENTERED, entry_timestamp=now_dt)
-                                
-                                # End trip
-                                try:
-                                    trip_id, duration = self.db.end_trip(assigned_boat.id, beacon.id, now_dt)
-                                    if trip_id:
-                                        logger.info(f"Trip ended: {assigned_boat.name} ({duration} min)", "TRIP")
-                                except Exception as e:
-                                    logger.error(f"End trip failed: {e}", "TRIP")
-                        except Exception as e:
-                            logger.error(f"Detection error: {e}", "DETECTION")
-                        processed_count += 1
-                        continue
 
                     # For multi-gate, route by gate if FSM supports it; otherwise pass scanner_id
                     state_change = self.fsm.process_detection(scanner_id, beacon.id, rssi)

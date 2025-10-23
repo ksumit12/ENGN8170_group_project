@@ -1,6 +1,6 @@
 # Boat Tracking System - Setup Summary
 
-## ✅ What's Been Added
+##  What's Been Added
 
 ### 1. Trip Tracking & Analytics
 - **New Database Table**: `boat_trips` - logs every exit/entry with duration
@@ -22,7 +22,7 @@
 - **Physical hardware setup** instructions
 - **Troubleshooting section** with common issues
 
-## 🚀 Quick Start Commands
+##  Quick Start Commands
 
 ### Fresh Raspberry Pi Setup
 ```bash
@@ -62,7 +62,7 @@ python3 boat_tracking_system.py --display-mode both --api-port 8000 --web-port 5
 ./scripts/stop_everything.sh
 ```
 
-## 🔧 Physical Hardware Setup
+##  Physical Hardware Setup
 
 ### BLE Scanner Placement
 - **Inner Scanner**: Inside shed, ~1m from boat storage area
@@ -74,7 +74,7 @@ python3 boat_tracking_system.py --display-mode both --api-port 8000 --web-port 5
 - **Advertising Interval**: 100-200ms
 - **Detection Range**: ~1-1.5 meters per scanner
 
-## 📊 New Features
+##  New Features
 
 ### Trip Tracking
 - **Automatic Logging**: Every boat exit/entry is logged with duration
@@ -87,7 +87,7 @@ python3 boat_tracking_system.py --display-mode both --api-port 8000 --web-port 5
 - **Terminal Display**: Clean HDMI output for monitors
 - **Both**: Simultaneous web + terminal display
 
-## 🛠️ Troubleshooting
+##  Troubleshooting
 
 ### Common Issues
 - **Environment not activated**: Always run `source .venv/bin/activate` first
@@ -104,7 +104,7 @@ python3 boat_tracking_system.py --display-mode both --api-port 8000 --web-port 5
 ./scripts/check_status.sh
 ```
 
-## 📁 Key Files
+##  Key Files
 
 - **`README.md`** - Complete setup and usage guide
 - **`scripts/stop_everything.sh`** - Stop all processes
@@ -113,7 +113,7 @@ python3 boat_tracking_system.py --display-mode both --api-port 8000 --web-port 5
 - **`app/database_models.py`** - Database models with trip tracking
 - **`app/entry_exit_fsm.py`** - FSM with trip logging
 
-## 🎯 Next Steps
+##  Next Steps
 
 1. **Test the system** with simulator: `python3 sim_run_simulator.py`
 2. **Configure BLE beacons** for ~1m detection range

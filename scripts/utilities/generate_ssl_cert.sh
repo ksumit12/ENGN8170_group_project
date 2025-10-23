@@ -17,7 +17,7 @@ openssl req -x509 -newkey rsa:4096 -nodes \
     -subj "/C=AU/ST=ACT/L=Canberra/O=Black Mountain Rowing Club/CN=boat-tracking"
 
 echo ""
-echo "✓ SSL certificate generated!"
+echo " SSL certificate generated!"
 echo "  Certificate: ssl/cert.pem"
 echo "  Private key: ssl/key.pem"
 echo "  Valid for: 365 days"

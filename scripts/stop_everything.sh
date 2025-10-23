@@ -28,30 +28,30 @@ kill_process() {
 }
 
 # Kill main system processes
-echo "📱 Stopping main system processes..."
+echo " Stopping main system processes..."
 kill_process "boat_tracking_system.py"
 kill_process "api_server.py"
 kill_process "scanner_service.py"
 kill_process "ble_scanner.py"
 
 # Kill simulator processes
-echo "🎮 Stopping simulator processes..."
+echo " Stopping simulator processes..."
 kill_process "sim_run_simulator.py"
 kill_process "sim_seed_data.py"
 kill_process "beacon_simulator.py"
 
 # Kill ngrok if running
-echo "🌐 Stopping ngrok tunnel..."
+echo " Stopping ngrok tunnel..."
 kill_process "ngrok"
 
 # Kill any Python processes that might be related
-echo "🐍 Stopping related Python processes..."
+echo " Stopping related Python processes..."
 kill_process "python3.*boat"
 kill_process "python3.*scanner"
 kill_process "python3.*sim"
 
 # Free up common ports
-echo "🔌 Freeing up ports..."
+echo " Freeing up ports..."
 for port in 5000 8000 8001 5001; do
     pid=$(lsof -ti:$port 2>/dev/null)
     if [ -n "$pid" ]; then
@@ -64,18 +64,18 @@ done
 sleep 2
 
 # Check if any processes are still running
-echo "🔍 Checking for remaining processes..."
+echo " Checking for remaining processes..."
 remaining=$(pgrep -f "boat_tracking_system\|api_server\|scanner_service\|ble_scanner\|sim_run_simulator\|ngrok" | wc -l)
 
 if [ "$remaining" -eq 0 ]; then
-    echo "✅ All processes stopped successfully!"
+    echo " All processes stopped successfully!"
 else
     echo "  Some processes may still be running:"
     pgrep -f "boat_tracking_system\|api_server\|scanner_service\|ble_scanner\|sim_run_simulator\|ngrok" | xargs ps -p
-    echo "💡 You may need to run: sudo pkill -f 'boat_tracking_system|api_server|scanner_service|ble_scanner|sim_run_simulator|ngrok'"
+    echo " You may need to run: sudo pkill -f 'boat_tracking_system|api_server|scanner_service|ble_scanner|sim_run_simulator|ngrok'"
 fi
 
-echo "🏁 Stop script completed!"
+echo " Stop script completed!"
 echo ""
 echo "To restart the system:"
 echo "  source .venv/bin/activate"

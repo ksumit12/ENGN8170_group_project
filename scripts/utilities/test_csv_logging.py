@@ -17,9 +17,9 @@ def test_directory_structure():
     
     try:
         os.makedirs(daily_dir, exist_ok=True)
-        print(f"✅ Daily directory created: {daily_dir}")
+        print(f" Daily directory created: {daily_dir}")
     except Exception as e:
-        print(f"❌ Failed to create daily directory: {e}")
+        print(f" Failed to create daily directory: {e}")
         return False
     
     week_start = test_date - timedelta(days=7)
@@ -28,9 +28,9 @@ def test_directory_structure():
     
     try:
         os.makedirs(weekly_dir, exist_ok=True)
-        print(f"✅ Weekly directory created: {weekly_dir}")
+        print(f" Weekly directory created: {weekly_dir}")
     except Exception as e:
-        print(f"❌ Failed to create weekly directory: {e}")
+        print(f" Failed to create weekly directory: {e}")
         return False
     
     return True
@@ -52,17 +52,17 @@ def test_csv_file_creation():
             writer = csv.writer(csvfile)
             writer.writerow(['Sequence', 'Boat Name', 'Boat Class', 'Exit Time', 'Entry Time', 'Duration (min)'])
             writer.writerow([1, 'Test Boat', 'Single', '2025-10-22 08:00:00', '2025-10-22 09:30:00', 90])
-        print(f"✅ Created test file: {filepath}")
+        print(f" Created test file: {filepath}")
         
         # Verify file exists and has content
         if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
-            print(f"✅ File verified: {os.path.getsize(filepath)} bytes")
+            print(f" File verified: {os.path.getsize(filepath)} bytes")
         else:
-            print(f"❌ File verification failed")
+            print(f" File verification failed")
             return False
             
     except Exception as e:
-        print(f"❌ Failed to create CSV file: {e}")
+        print(f" Failed to create CSV file: {e}")
         return False
     
     # Test system logs file
@@ -74,9 +74,9 @@ def test_csv_file_creation():
             writer = csv.writer(csvfile)
             writer.writerow(['Timestamp', 'Level', 'Component', 'Message'])
             writer.writerow(['2025-10-22 08:00:00', 'INFO', 'TEST', 'Test log entry'])
-        print(f"✅ Created test file: {filepath}")
+        print(f" Created test file: {filepath}")
     except Exception as e:
-        print(f"❌ Failed to create system logs file: {e}")
+        print(f" Failed to create system logs file: {e}")
         return False
     
     # Test sessions file
@@ -88,9 +88,9 @@ def test_csv_file_creation():
             writer = csv.writer(csvfile)
             writer.writerow(['Boat ID', 'Boat Name', 'Boat Class', 'Session Start', 'Session End', 'Duration (min)', 'Status'])
             writer.writerow(['boat_001', 'Test Boat', 'Single', '2025-10-22 08:00:00', '2025-10-22 09:30:00', 90, 'Completed'])
-        print(f"✅ Created test file: {filepath}")
+        print(f" Created test file: {filepath}")
     except Exception as e:
-        print(f"❌ Failed to create sessions file: {e}")
+        print(f" Failed to create sessions file: {e}")
         return False
     
     return True
@@ -117,9 +117,9 @@ def test_weekly_structure():
             writer = csv.writer(csvfile)
             writer.writerow(['Boat Name', 'Boat Class', 'Total Trips', 'Total Minutes', 'Avg Duration (min)', 'Max Duration (min)', 'Status'])
             writer.writerow(['Test Boat', 'Single', 10, 900, 90, 120, 'operational'])
-        print(f"✅ Created weekly summary: {filepath}")
+        print(f" Created weekly summary: {filepath}")
     except Exception as e:
-        print(f"❌ Failed to create weekly summary: {e}")
+        print(f" Failed to create weekly summary: {e}")
         return False
     
     return True
@@ -132,7 +132,7 @@ def display_structure():
     
     base_dir = "data/csv_logs"
     if not os.path.exists(base_dir):
-        print("❌ Base directory doesn't exist yet")
+        print(" Base directory doesn't exist yet")
         return
     
     for root, dirs, files in os.walk(base_dir):
@@ -170,7 +170,7 @@ def main():
     # Summary
     print("\n" + "="*70)
     if all_passed:
-        print("✅ All tests passed! CSV logging system is ready.")
+        print(" All tests passed! CSV logging system is ready.")
         print("\nNext steps:")
         print("1. Start the boat tracking system")
         print("2. Test manual triggers:")
@@ -178,11 +178,14 @@ def main():
         print("   curl -X POST http://localhost:5001/api/admin/trigger-weekly-export")
         print("3. Check the generated files in data/csv_logs/")
     else:
-        print("❌ Some tests failed. Please check the errors above.")
+        print(" Some tests failed. Please check the errors above.")
     print("="*70)
     
     return 0 if all_passed else 1
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+
 

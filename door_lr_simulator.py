@@ -86,7 +86,7 @@ def send_detection_to_api(scanner_id: str, beacon_mac: str, rssi: int, server_ur
         
         if response.status_code == 200:
             state_change = "→" if current_state_before != current_state_after else "="
-            print(f"✓ SENT [{scanner_id:12}] {beacon_mac} @ {rssi:4d} dBm | State: {current_state_before:8} {state_change} {current_state_after:8} | Expect: {expected_state or 'N/A'}")
+            print(f" SENT [{scanner_id:12}] {beacon_mac} @ {rssi:4d} dBm | State: {current_state_before:8} {state_change} {current_state_after:8} | Expect: {expected_state or 'N/A'}")
             if log:
                 log("detection_success", 
                     scanner_id=scanner_id, 
@@ -101,7 +101,7 @@ def send_detection_to_api(scanner_id: str, beacon_mac: str, rssi: int, server_ur
                     timestamp=time.time())
             return True
         else:
-            print(f"✗ ERROR {response.status_code}: {response.text[:100]}")
+            print(f" ERROR {response.status_code}: {response.text[:100]}")
             if log:
                 log("detection_error", 
                     scanner_id=scanner_id, 
@@ -113,7 +113,7 @@ def send_detection_to_api(scanner_id: str, beacon_mac: str, rssi: int, server_ur
                     error=response.text[:500])
             return False
     except Exception as e:
-        print(f"✗ FAILED: {e}")
+        print(f" FAILED: {e}")
         if log:
             log("detection_fail", 
                 scanner_id=scanner_id, 
@@ -178,7 +178,7 @@ class RealisticBluetoothSimulator:
         """Simulate boat exiting shed (left -> right movement) - Door-LR Logic."""
         
         # Phase 1: Boat starts in shed (strong left signal)
-        print("\n  📍 Phase 1: Boat in shed (strong LEFT signal)")
+        print("\n   Phase 1: Boat in shed (strong LEFT signal)")
         print("     Goal: Establish baseline - boat is INSIDE")
         for i in range(3):
             rssi = self.calculate_rssi(0.5, self.base_rssi_left)
@@ -186,7 +186,7 @@ class RealisticBluetoothSimulator:
             time.sleep(random.uniform(0.4, 0.6))
         
         # Phase 2: Boat begins moving toward gate - LEFT weakens, RIGHT strengthens
-        print("\n  🚶 Phase 2: Moving through gate (LEFT → RIGHT)")
+        print("\n   Phase 2: Moving through gate (LEFT → RIGHT)")
         print("     Goal: LEFT weakens, RIGHT strengthens - classifier should detect EXIT")
         steps = 10
         for i in range(steps):
@@ -208,7 +208,7 @@ class RealisticBluetoothSimulator:
             time.sleep(random.uniform(0.2, 0.4))
         
         # Phase 3: Boat exits to water (strong right signal, weak left)
-        print("\n  🌊 Phase 3: Boat on water (strong RIGHT signal)")
+        print("\n   Phase 3: Boat on water (strong RIGHT signal)")
         print("     Goal: Strong RIGHT, weak LEFT - confirm OUTSIDE state")
         for i in range(4):
             rssi = self.calculate_rssi(0.5, self.base_rssi_right)
@@ -219,14 +219,14 @@ class RealisticBluetoothSimulator:
                 send_detection_to_api("gate-left", beacon_mac, weak_rssi, server_url, log, db, boat_id, expected_state)
             time.sleep(random.uniform(0.4, 0.6))
         
-        print("\n  ✓ Exit movement completed (LEFT → RIGHT)")
+        print("\n   Exit movement completed (LEFT → RIGHT)")
         return True
     
     def _simulate_enter(self, beacon_mac: str, server_url: str, log=None, db=None, boat_id=None, expected_state=None) -> bool:
         """Simulate boat entering shed (right -> left movement) - Door-LR Logic."""
         
         # Phase 1: Boat approaches from water (strong right signal)
-        print("\n  🌊 Phase 1: Boat approaching from water (strong RIGHT signal)")
+        print("\n   Phase 1: Boat approaching from water (strong RIGHT signal)")
         print("     Goal: Establish baseline - boat is OUTSIDE")
         for i in range(3):
             rssi = self.calculate_rssi(0.5, self.base_rssi_right)
@@ -234,7 +234,7 @@ class RealisticBluetoothSimulator:
             time.sleep(random.uniform(0.4, 0.6))
         
         # Phase 2: Boat moves through gate - RIGHT weakens, LEFT strengthens
-        print("\n  🚶 Phase 2: Moving through gate (RIGHT → LEFT)")
+        print("\n   Phase 2: Moving through gate (RIGHT → LEFT)")
         print("     Goal: RIGHT weakens, LEFT strengthens - classifier should detect ENTER")
         steps = 10
         for i in range(steps):
@@ -256,7 +256,7 @@ class RealisticBluetoothSimulator:
             time.sleep(random.uniform(0.2, 0.4))
         
         # Phase 3: Boat enters shed (strong left signal, weak right)
-        print("\n  📍 Phase 3: Boat in shed (strong LEFT signal)")
+        print("\n   Phase 3: Boat in shed (strong LEFT signal)")
         print("     Goal: Strong LEFT, weak RIGHT - confirm INSIDE state")
         for i in range(4):
             rssi = self.calculate_rssi(0.5, self.base_rssi_left)
@@ -267,7 +267,7 @@ class RealisticBluetoothSimulator:
                 send_detection_to_api("gate-right", beacon_mac, weak_rssi, server_url, log, db, boat_id, expected_state)
             time.sleep(random.uniform(0.4, 0.6))
         
-        print("\n  ✓ Enter movement completed (RIGHT → LEFT)")
+        print("\n   Enter movement completed (RIGHT → LEFT)")
         return True
 
 

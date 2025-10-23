@@ -1,6 +1,6 @@
 # Door L/R Calibration - Quick Usage Guide
 
-## 🎯 Two Modes
+##  Two Modes
 
 ### 1. Calibration Mode (Default)
 Teaches the system what CENTER, LEFT, and RIGHT look like at different heights.
@@ -10,7 +10,7 @@ Tests real-time movement detection using saved calibration.
 
 ---
 
-## 📋 Calibration Mode
+##  Calibration Mode
 
 ### Full Calibration with Height Testing (Recommended)
 
@@ -42,7 +42,7 @@ Faster but less robust to height variations.
 
 ---
 
-## 🧪 Live Testing Mode
+##  Live Testing Mode
 
 ### After Calibration - Test Real Movement
 
@@ -58,20 +58,20 @@ python3 calibration/door_lr_calibration.py --mac AA:BB:CC:DD:EE:FF --test-live
    - Corrected RSSI (with offsets applied)
    - First detection (lag analysis)
    - Signal dominance
-   - ✅/❌ Detection result
+   - / Detection result
 
 **Example session:**
 ```
 Test 1 - Which direction? [EXIT/ENTER/Q to quit]: EXIT
 Press Enter to START monitoring...
 
-⏱ Monitoring for 15 seconds...
+ Monitoring for 15 seconds...
 
   LEFT  | Raw:  -45 dBm | Corrected:  -47.5 dBm
   RIGHT | Raw:  -52 dBm | Corrected:  -49.5 dBm
   ...
 
-✓ Captured 245 samples
+ Captured 245 samples
 
 Analyzing movement pattern...
   First detection: LEFT (lag: 0.34s)
@@ -80,12 +80,12 @@ Analyzing movement pattern...
   Dominance: RIGHT by 3.1 dB
 
   Expected: EXIT
-  Detection: ✅ CORRECT
+  Detection:  CORRECT
 ```
 
 ---
 
-## 🔄 Typical Workflow
+##  Typical Workflow
 
 ### Day 1: Initial Calibration
 
@@ -124,7 +124,7 @@ python3 calibration/door_lr_calibration.py --mac AA:BB:CC:DD:EE:FF
 
 ---
 
-## 📊 Understanding Output
+##  Understanding Output
 
 ### RSSI Offsets
 
@@ -156,20 +156,20 @@ RIGHT dominance:     11.5 dB
 
 ### Quality Checks
 
-✅ **GOOD Calibration:**
+ **GOOD Calibration:**
 - Center gap: <3 dB
 - Left gap: ≥6 dB
 - Right gap: ≥6 dB
 - Sample counts: >20 per position
 
-⚠ **Issues:**
+ **Issues:**
 - Center gap >3 dB → Reposition beacon
 - Side gaps <6 dB → Move closer to scanner
 - Low samples → Check scanner connectivity
 
 ---
 
-## 🛠 Troubleshooting
+##  Troubleshooting
 
 ### No samples collected
 
@@ -210,7 +210,7 @@ curl http://127.0.0.1:8000/api/presence
 
 ---
 
-## 💡 Tips
+##  Tips
 
 ### For Best Results
 
@@ -236,7 +236,7 @@ curl http://127.0.0.1:8000/api/presence
 
 ---
 
-## 📈 Integration
+##  Integration
 
 Once calibrated, the system automatically:
 1. Loads offsets from `calibration/sessions/latest/door_lr_calib.json`
@@ -248,7 +248,7 @@ No manual steps needed - just restart `boat_tracking_system.py`!
 
 ---
 
-## 🎓 Advanced
+##  Advanced
 
 ### Custom Duration Per Height
 
@@ -274,6 +274,10 @@ cat calibration/sessions/latest/door_lr_calib.json | python3 -m json.tool
 ---
 
 **Need Help?** See `CALIBRATION_GUIDE.md` for detailed explanations.
+
+
+
+
 
 
 
