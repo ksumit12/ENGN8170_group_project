@@ -140,7 +140,7 @@ class DatabaseManager:
         self._backup_dir = bdir
     
     def init_database(self):
-        """Initialize database with all required tables."""
+        """Initialize database with all required tables and recovery mechanisms."""
         # Safeguard: if DB exists, make a lightweight backup once per day
         import os, shutil, datetime
         if os.path.exists(self.db_path):
@@ -151,52 +151,132 @@ class DatabaseManager:
                     shutil.copy2(self.db_path, backup_path)
                 except Exception:
                     pass
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            
-            # Boats table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS boats (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    class_type TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'unknown',
-                    created_at TIMESTAMP NOT NULL,
-                    updated_at TIMESTAMP NOT NULL,
-                    notes TEXT
-                )
-            """)
-            
-            # Beacons table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS beacons (
-                    id TEXT PRIMARY KEY,
-                    mac_address TEXT UNIQUE NOT NULL,
-                    name TEXT,
-                    status TEXT NOT NULL DEFAULT 'unclaimed',
-                    last_seen TIMESTAMP,
-                    last_rssi INTEGER,
-                    created_at TIMESTAMP NOT NULL,
-                    updated_at TIMESTAMP NOT NULL,
-                    notes TEXT
-                )
-            """)
-            
-            # Boat-Beacon assignments table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS boat_beacon_assignments (
-                    id TEXT PRIMARY KEY,
-                    boat_id TEXT NOT NULL,
-                    beacon_id TEXT NOT NULL,
-                    assigned_at TIMESTAMP NOT NULL,
-                    unassigned_at TIMESTAMP,
-                    is_active BOOLEAN NOT NULL DEFAULT 1,
-                    notes TEXT,
-                    FOREIGN KEY (boat_id) REFERENCES boats (id),
-                    FOREIGN KEY (beacon_id) REFERENCES beacons (id),
-                    UNIQUE(boat_id, beacon_id, is_active) ON CONFLICT REPLACE
-                )
-            """)
+        
+        # Try to connect with retry mechanism
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+                    # Enable WAL mode for better concurrency and recovery
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    conn.execute("PRAGMA synchronous=NORMAL")
+                    conn.execute("PRAGMA cache_size=10000")
+                    conn.execute("PRAGMA temp_store=MEMORY")
+                    
+                    cursor = conn.cursor()
+                    
+                    # Boats table
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS boats (
+                            id TEXT PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            class_type TEXT NOT NULL,
+                            status TEXT NOT NULL DEFAULT 'unknown',
+                            created_at TIMESTAMP NOT NULL,
+                            updated_at TIMESTAMP NOT NULL,
+                            notes TEXT
+                        )
+                    """)
+                    
+                    # Beacons table
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS beacons (
+                            id TEXT PRIMARY KEY,
+                            mac_address TEXT UNIQUE NOT NULL,
+                            name TEXT,
+                            status TEXT NOT NULL DEFAULT 'unclaimed',
+                            last_seen TIMESTAMP,
+                            last_rssi INTEGER,
+                            created_at TIMESTAMP NOT NULL,
+                            updated_at TIMESTAMP NOT NULL,
+                            notes TEXT
+                        )
+                    """)
+                    
+                    # Boat-Beacon assignments table
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS boat_beacon_assignments (
+                            id TEXT PRIMARY KEY,
+                            boat_id TEXT NOT NULL,
+                            beacon_id TEXT NOT NULL,
+                            assigned_at TIMESTAMP NOT NULL,
+                            unassigned_at TIMESTAMP,
+                            is_active BOOLEAN NOT NULL DEFAULT 1,
+                            notes TEXT,
+                            FOREIGN KEY (boat_id) REFERENCES boats (id),
+                            FOREIGN KEY (beacon_id) REFERENCES beacons (id),
+                            UNIQUE(boat_id, beacon_id, is_active) ON CONFLICT REPLACE
+                        )
+                    """)
+                    
+                    # Detection states table
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS detection_states (
+                            beacon_id TEXT PRIMARY KEY,
+                            state TEXT NOT NULL,
+                            entry_timestamp TIMESTAMP,
+                            exit_timestamp TIMESTAMP,
+                            updated_at TIMESTAMP NOT NULL,
+                            FOREIGN KEY (beacon_id) REFERENCES beacons (id)
+                        )
+                    """)
+                    
+                    # Shed events table (append-only log)
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS shed_events (
+                            id TEXT PRIMARY KEY,
+                            boat_id TEXT,
+                            beacon_id TEXT,
+                            event_type TEXT CHECK(event_type IN ('IN_SHED', 'OUT_SHED')),
+                            ts_utc TIMESTAMP NOT NULL,
+                            created_at TIMESTAMP NOT NULL,
+                            FOREIGN KEY (boat_id) REFERENCES boats (id),
+                            FOREIGN KEY (beacon_id) REFERENCES beacons (id)
+                        )
+                    """)
+                    
+                    # Boat trips table
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS boat_trips (
+                            id TEXT PRIMARY KEY,
+                            boat_id TEXT NOT NULL,
+                            beacon_id TEXT NOT NULL,
+                            start_time TIMESTAMP NOT NULL,
+                            end_time TIMESTAMP,
+                            duration_minutes INTEGER,
+                            created_at TIMESTAMP NOT NULL,
+                            FOREIGN KEY (boat_id) REFERENCES boats (id),
+                            FOREIGN KEY (beacon_id) REFERENCES beacons (id)
+                        )
+                    """)
+                    
+                    # Create indexes for better performance
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_beacons_mac ON beacons(mac_address)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_assignments_boat ON boat_beacon_assignments(boat_id)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_assignments_beacon ON boat_beacon_assignments(beacon_id)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_boat ON shed_events(boat_id)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_beacon ON shed_events(beacon_id)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_time ON shed_events(ts_utc)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trips_boat ON boat_trips(boat_id)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trips_time ON boat_trips(start_time)")
+                    
+                    conn.commit()
+                    break  # Success, exit retry loop
+                    
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    import time
+                    time.sleep(1)  # Wait before retry
+                    continue
+                else:
+                    raise
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(1)
+                    continue
+                else:
+                    raise
             
             # Detections table for analytics
             cursor.execute("""
