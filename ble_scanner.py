@@ -359,45 +359,45 @@ class BLEScanner:
         retry_count = 0
         max_retries = 5
         
-        while self.running and retry_count < max_retries:
-            try:
-                scanner = BleakScanner(self.detection_callback, **scanner_kwargs)
-                await scanner.start()
-                logger.info("BLE scanner started successfully", "SCANNER")
-                self.running = True
-                retry_count = 0  # Reset retry count on successful start
+        try:
+            while self.running and retry_count < max_retries:
+                try:
+                    scanner = BleakScanner(self.detection_callback, **scanner_kwargs)
+                    await scanner.start()
+                    logger.info("BLE scanner started successfully", "SCANNER")
+                    self.running = True
+                    retry_count = 0  # Reset retry count on successful start
 
-                while self.running:
-                    await asyncio.sleep(self.config.scan_interval)
-                    with self.lock:
-                        # Prune stale detections so UI reflects beacons that are truly active now
-                        now_ts = time.time()
-                        stale_keys = [mac for mac, obs in self.detected_beacons.items()
-                                      if obs.ts is None or (now_ts - obs.ts) > self.config.active_window_seconds]
-                        for mac in stale_keys:
-                            self.detected_beacons.pop(mac, None)
-                        if self.observation_queue:
-                            self._process_observations()
-                            
-            except Exception as e:
-                retry_count += 1
-                logger.error(f"BLE scan error (attempt {retry_count}/{max_retries}): {e}", "SCANNER")
-                
-                if scanner:
-                    try:
-                        await scanner.stop()
-                    except Exception:
-                        pass
-                    scanner = None
-                
-                if retry_count < max_retries:
-                    wait_time = min(2 ** retry_count, 30)  # Exponential backoff, max 30 seconds
-                    logger.info(f"Retrying in {wait_time} seconds...", "SCANNER")
-                    await asyncio.sleep(wait_time)
-                else:
-                    logger.error(f"Max retries reached. Scanner {self.config.scanner_id} failed permanently.", "SCANNER")
-                    break
+                    while self.running:
+                        await asyncio.sleep(self.config.scan_interval)
+                        with self.lock:
+                            # Prune stale detections so UI reflects beacons that are truly active now
+                            now_ts = time.time()
+                            stale_keys = [mac for mac, obs in self.detected_beacons.items()
+                                          if obs.ts is None or (now_ts - obs.ts) > self.config.active_window_seconds]
+                            for mac in stale_keys:
+                                self.detected_beacons.pop(mac, None)
+                            if self.observation_queue:
+                                self._process_observations()
+                                
+                except Exception as e:
+                    retry_count += 1
+                    logger.error(f"BLE scan error (attempt {retry_count}/{max_retries}): {e}", "SCANNER")
                     
+                    if scanner:
+                        try:
+                            await scanner.stop()
+                        except Exception:
+                            pass
+                        scanner = None
+                    
+                    if retry_count < max_retries:
+                        wait_time = min(2 ** retry_count, 30)  # Exponential backoff, max 30 seconds
+                        logger.info(f"Retrying in {wait_time} seconds...", "SCANNER")
+                        await asyncio.sleep(wait_time)
+                    else:
+                        logger.error(f"Max retries reached. Scanner {self.config.scanner_id} failed permanently.", "SCANNER")
+                        break
         finally:
             self.running = False
             if scanner:
