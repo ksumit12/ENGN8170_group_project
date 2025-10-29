@@ -25,6 +25,7 @@ matplotlib.use('Agg')  # headless
 import matplotlib.pyplot as plt
 
 from app.database_models import DatabaseManager
+import sqlite3
 
 
 def signal_percent(rssi_dbm: float) -> int:
@@ -36,20 +37,24 @@ def signal_percent(rssi_dbm: float) -> int:
 
 def fetch_recent_detections(db: DatabaseManager, mac: str, seconds: float = 1.0):
     """Fetch recent detections for a beacon MAC from database"""
-    with db.get_connection() as conn:
-        c = conn.cursor()
-        c.execute(
-            """
-            SELECT d.scanner_id, d.rssi, strftime('%s', d.timestamp) AS ts
-            FROM detections d
-            JOIN beacons b ON b.id = d.beacon_id
-            WHERE b.mac_address = ? AND d.timestamp > datetime('now', ?)
-            ORDER BY d.timestamp DESC LIMIT 200
-            """,
-            (mac, f"-{int(max(1, seconds))} seconds"),
-        )
-        rows = c.fetchall()
-    return rows
+    try:
+        with db.get_connection() as conn:
+            c = conn.cursor()
+            c.execute(
+                """
+                SELECT d.scanner_id, d.rssi, strftime('%s', d.timestamp) AS ts
+                FROM detections d
+                JOIN beacons b ON b.id = d.beacon_id
+                WHERE b.mac_address = ? AND d.timestamp > datetime('now', ?)
+                ORDER BY d.timestamp DESC LIMIT 200
+                """,
+                (mac, f"-{int(max(1, seconds))} seconds"),
+            )
+            rows = c.fetchall()
+        return rows
+    except sqlite3.Error as e:
+        print(f"[DB unavailable] {e}. Tip: ensure scanners are running and posting to DB.")
+        return []
 
 
 def live_signal_meter(db: DatabaseManager, mac: str, duration_s: float = 10.0):

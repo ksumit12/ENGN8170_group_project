@@ -46,6 +46,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database_models import DatabaseManager
+import sqlite3
 
 
 def signal_percent(rssi_dbm: float) -> int:
@@ -57,20 +58,24 @@ def signal_percent(rssi_dbm: float) -> int:
 
 def fetch_recent_detections(db: DatabaseManager, mac: str, seconds: float = 1.0):
     """Fetch recent detections from database"""
-    with db.get_connection() as conn:
-        c = conn.cursor()
-        c.execute(
-            """
-            SELECT d.scanner_id, d.rssi, d.timestamp
-            FROM detections d
-            JOIN beacons b ON b.id = d.beacon_id
-            WHERE b.mac_address = ? AND d.timestamp > datetime('now', ?)
-            ORDER BY d.timestamp DESC LIMIT 500
-            """,
-            (mac, f"-{int(max(1, seconds))} seconds"),
-        )
-        rows = c.fetchall()
-    return rows
+    try:
+        with db.get_connection() as conn:
+            c = conn.cursor()
+            c.execute(
+                """
+                SELECT d.scanner_id, d.rssi, d.timestamp
+                FROM detections d
+                JOIN beacons b ON b.id = d.beacon_id
+                WHERE b.mac_address = ? AND d.timestamp > datetime('now', ?)
+                ORDER BY d.timestamp DESC LIMIT 500
+                """,
+                (mac, f"-{int(max(1, seconds))} seconds"),
+            )
+            rows = c.fetchall()
+        return rows
+    except sqlite3.Error as e:
+        print(f"[DB unavailable] {e}. Tip: ensure the system is running and posting, or run a direct-scan variant if available.")
+        return []
 
 
 def collect_samples_with_smoothing(db: DatabaseManager, mac: str, duration_s: float, 

@@ -33,6 +33,7 @@ from statistics import median, pstdev
 from typing import List, Tuple, Optional
 
 from app.database_models import DatabaseManager
+import sqlite3
 
 # Optional direct scanning (Bleak)
 try:
@@ -42,20 +43,24 @@ except Exception:
 
 
 def fetch_recent(db: DatabaseManager, mac: str, seconds: float = 2.0) -> List[Tuple[str, int]]:
-    with db.get_connection() as conn:
-        c = conn.cursor()
-        c.execute(
-            """
-            SELECT d.scanner_id, d.rssi
-            FROM detections d
-            JOIN beacons b ON b.id = d.beacon_id
-            WHERE b.mac_address = ? AND d.timestamp > datetime('now', ?)
-            ORDER BY d.timestamp DESC LIMIT 400
-            """,
-            (mac, f"-{int(max(1, seconds))} seconds"),
-        )
-        rows = c.fetchall()
-    return [(str(sid or ''), int(rssi)) for sid, rssi in rows]
+    try:
+        with db.get_connection() as conn:
+            c = conn.cursor()
+            c.execute(
+                """
+                SELECT d.scanner_id, d.rssi
+                FROM detections d
+                JOIN beacons b ON b.id = d.beacon_id
+                WHERE b.mac_address = ? AND d.timestamp > datetime('now', ?)
+                ORDER BY d.timestamp DESC LIMIT 400
+                """,
+                (mac, f"-{int(max(1, seconds))} seconds"),
+            )
+            rows = c.fetchall()
+        return [(str(sid or ''), int(rssi)) for sid, rssi in rows]
+    except sqlite3.Error as e:
+        print(f"[DB unavailable] {e}. Tip: start scanners or use --scan for direct BLE.")
+        return []
 
 
 def compute_stats(readings: List[Tuple[str, int]], min_samples: int = 4, *, offsets: Optional[dict] = None):

@@ -32,6 +32,7 @@ import matplotlib.pyplot as plt
 from typing import List, Tuple
 
 from app.database_models import DatabaseManager
+import sqlite3
 
 # Optional live scanning (Bleak)
 try:
@@ -47,20 +48,25 @@ def signal_percent(rssi_dbm: float) -> int:
 
 
 def fetch_recent(db: DatabaseManager, mac: str, seconds: float = 1.0) -> List[Tuple[str, int]]:
-    with db.get_connection() as conn:
-        c = conn.cursor()
-        c.execute(
-            """
-            SELECT d.scanner_id, d.rssi
-            FROM detections d
-            JOIN beacons b ON b.id = d.beacon_id
-            WHERE b.mac_address = ? AND d.timestamp > datetime('now', ?)
-            ORDER BY d.timestamp DESC LIMIT 200
-            """,
-            (mac, f"-{int(max(1, seconds))} seconds"),
-        )
-        rows = c.fetchall()
-    return [(str(sid or ''), int(rssi)) for sid, rssi in rows]
+    try:
+        with db.get_connection() as conn:
+            c = conn.cursor()
+            c.execute(
+                """
+                SELECT d.scanner_id, d.rssi
+                FROM detections d
+                JOIN beacons b ON b.id = d.beacon_id
+                WHERE b.mac_address = ? AND d.timestamp > datetime('now', ?)
+                ORDER BY d.timestamp DESC LIMIT 200
+                """,
+                (mac, f"-{int(max(1, seconds))} seconds"),
+            )
+            rows = c.fetchall()
+        return [(str(sid or ''), int(rssi)) for sid, rssi in rows]
+    except sqlite3.Error as e:
+        # Gracefully degrade when DB or table isn't ready
+        print(f"[DB unavailable] {e}. Tip: start scanners or use --scan for direct BLE.")
+        return []
 
 
 def stats(readings: List[Tuple[str, int]], *, min_samples: int = 3) -> Tuple[float, float, float, int, int, float, float]:
