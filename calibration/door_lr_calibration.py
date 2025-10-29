@@ -590,10 +590,10 @@ def main():
                 height = bar.get_height()
                 ax.text(bar.get_x() + bar.get_width()/2., height + 1,
                        f'{val:.1f}', ha='center', va='bottom', fontsize=9)
-    
-        plt.tight_layout()
+
+    plt.tight_layout()
     plt.savefig(os.path.join(plots_dir, 'rssi_by_position.png'), dpi=140)
-        plt.close()
+    plt.close()
 
     # Plot 2: Gap comparison
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -613,9 +613,9 @@ def main():
         ax.text(bar.get_x() + bar.get_width()/2., height + 0.3,
                f'{val:.1f} dB', ha='center', va='bottom', fontsize=10, fontweight='bold')
     
-        plt.tight_layout()
+    plt.tight_layout()
     plt.savefig(os.path.join(plots_dir, 'gap_comparison.png'), dpi=140)
-        plt.close()
+    plt.close()
 
     # Plot 3: Raw RSSI distribution
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
