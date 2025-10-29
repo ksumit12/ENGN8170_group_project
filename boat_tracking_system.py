@@ -232,6 +232,19 @@ class BoatTrackingSystem:
             self.scanners: List[BLEScanner] = []
             self.running = False
             
+            # Initialize emergency notification system state BEFORE web route setup
+            # so that routes can reference feature flags safely.
+            self.emergency_notifications = None
+            self.emergency_enabled = config.get('emergency_notifications', {}).get('enabled', False)
+            if self.emergency_enabled:
+                try:
+                    emergency_config = config.get('emergency_notifications', {})
+                    self.emergency_notifications = EmergencyNotificationSystem(emergency_config)
+                    logger.info("Emergency notification system initialized", "EMERGENCY")
+                except Exception as e:
+                    logger.error(f"Failed to initialize emergency notifications: {e}", "EMERGENCY", e)
+                    self.emergency_enabled = False
+            
             # Web dashboard (only if web mode is enabled)
             if display_mode in ['web', 'both']:
                 self.web_app = Flask(__name__)
@@ -251,18 +264,6 @@ class BoatTrackingSystem:
             # Initialize status monitoring
             self.health_check_interval = 30  # seconds
             self.last_health_check = datetime.now(timezone.utc)
-            
-            # Initialize emergency notification system
-            self.emergency_notifications = None
-            self.emergency_enabled = config.get('emergency_notifications', {}).get('enabled', False)
-            if self.emergency_enabled:
-                try:
-                    emergency_config = config.get('emergency_notifications', {})
-                    self.emergency_notifications = EmergencyNotificationSystem(emergency_config)
-                    logger.info("Emergency notification system initialized", "EMERGENCY")
-                except Exception as e:
-                    logger.error(f"Failed to initialize emergency notifications: {e}", "EMERGENCY", e)
-                    self.emergency_enabled = False
             
             # Terminal display (only if terminal mode is enabled)
             if display_mode in ['terminal', 'both']:
