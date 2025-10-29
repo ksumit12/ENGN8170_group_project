@@ -171,6 +171,7 @@ def main() -> None:
     ap.add_argument('--window-s', type=float, default=2.0, help='Seconds of recent data for medians')
     ap.add_argument('--tol-db', type=float, default=2.0, help='Target |L-R| tolerance for center')
     ap.add_argument('--stable-s', type=float, default=5.0, help='Seconds gap must remain within tolerance')
+    ap.add_argument('--min-samples', type=int, default=3, help='Minimum samples per side to compute gap (lower if signals are sparse)')
     ap.add_argument('--save-offsets', action='store_true', default=False, help='Write suggested RSSI offsets to calibration/door_lr_calib.json when stable')
     ap.add_argument('--apply-offsets', action='store_true', default=False, help='Apply saved rssi_offsets from calibration/door_lr_calib.json while computing gap')
     ap.add_argument('--scan', action='store_true', default=False, help='Use direct BLE scan instead of DB')
@@ -202,7 +203,7 @@ def main() -> None:
                         offs = json.load(f)
                 except Exception:
                     offs = None
-            st = compute_stats(rs, offsets=offs)
+            st = compute_stats(rs, min_samples=max(1, int(args.min_samples)), offsets=offs)
             now = time.time()
             if not st or st.get('gap') is None:
                 nL = st.get('nL', 0) if st else 0
